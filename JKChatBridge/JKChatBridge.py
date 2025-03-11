@@ -197,8 +197,17 @@ class JKChatBridge(commands.Cog):
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
         discord_username = message.author.display_name
-        message_content = self.replace_emojis_with_names(message.content)
-        
+        message_content = message.content  # Start with raw content
+
+        # Replace typographic punctuation with ASCII equivalents
+        message_content = message_content.replace("’", "'").replace("‘", "'")  # Apostrophes
+        message_content = message_content.replace("“", "\"").replace("”", "\"")  # Quotes
+        message_content = message_content.replace("–", "-").replace("—", "-")  # Dashes
+        message_content = message_content.replace("…", "...")  # Ellipsis
+
+        # Process emojis: custom ones to :name:, remove standard Unicode emojis
+        message_content = self.replace_emojis_with_names(message_content)
+
         if self.url_pattern.search(message_content):
             print(f"Blocked Discord message with URL: {message_content}")
             return
@@ -246,29 +255,32 @@ class JKChatBridge(commands.Cog):
             await message.channel.send(f"Failed to send to game: {e}")
 
     def replace_emojis_with_names(self, text):
-        """Replace Discord emojis with common text emoticons or names for Jedi Academy."""
+        """Replace custom Discord emojis with :name: and remove standard Unicode emojis."""
+        # First, replace custom server emojis with :name:
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
+        
+        # Then, remove standard Unicode emojis (from the old emoji_map)
         emoji_map = {
-            "😊": ":)",
-            "😄": ":D",
-            "😂": "XD",
-            "🤣": "xD",
-            "😉": ";)",
-            "😛": ":P",
-            "😢": ":(",
-            "😡": ">:(",
-            "👍": ":+1:",
-            "👎": ":-1:",
-            "❤️": "<3",
-            "💖": "<3",
-            "😍": ":*",
-            "🙂": ":)",
-            "😣": ":S",
-            "😜": ":P"
+            "😊": "",
+            "😄": "",
+            "😂": "",
+            "🤣": "",
+            "😉": "",
+            "😛": "",
+            "😢": "",
+            "😡": "",
+            "👍": "",
+            "👎": "",
+            "❤️": "",
+            "💖": "",
+            "😍": "",
+            "🙂": "",
+            "😣": "",
+            "😜": ""
         }
-        for unicode_emoji, text_emote in emoji_map.items():
-            text = text.replace(unicode_emoji, text_emote)
+        for unicode_emoji, _ in emoji_map.items():
+            text = text.replace(unicode_emoji, "")
         return text
 
     def replace_text_emotes_with_emojis(self, text):
