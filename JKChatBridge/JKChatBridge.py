@@ -138,7 +138,13 @@ class JKChatBridge(commands.Cog):
                 await asyncio.sleep(5)
                 continue
 
-            current_date = datetime.now().strftime("%m-%d-%Y")  # e.g., "03-11-2025"
+            # Get the current date without leading zeros
+            now = datetime.now()
+            month = str(now.month)  # e.g., '3' instead of '03'
+            day = str(now.day)      # e.g., '11' instead of '011'
+            year = str(now.year)    # e.g., '2025'
+            current_date = f"{month}-{day}-{year}"  # e.g., '3-11-2025'
+
             log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
             print(f"Attempting to monitor log file: {log_file_path}")
 
