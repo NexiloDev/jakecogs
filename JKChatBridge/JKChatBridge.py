@@ -20,12 +20,12 @@ class JKChatBridge(commands.Cog):
             rcon_host="127.0.0.1",
             rcon_port=29070,
             rcon_password=None,
-            custom_emoji="<:jk:1219115870928900146>"  # Default chat emoji
+            custom_emoji="<:jk:1219115870928900146>"
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
-        self.client_names = {}  # Store client ID to name mapping
+        self.client_names = {}
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
@@ -118,9 +118,74 @@ class JKChatBridge(commands.Cog):
                 await self.monitor_task
             except asyncio.CancelledError:
                 pass
-        self.client_names.clear()  # Reset client names on reload
+        self.client_names.clear()
         self.start_monitoring()
         await ctx.send("Log monitoring task reloaded.")
+
+    @jkbridge.command()
+    async def serverstatus(self, ctx):
+        """Display detailed server status with emojis."""
+        rcon_host = await self.config.rcon_host()
+        rcon_port = await self.config.rcon_port()
+        rcon_password = await self.config.rcon_password()
+        if not all([rcon_host, rcon_port, rcon_password]):
+            await ctx.send("RCON settings not fully configured. Use [p]jk setrconhost, [p]jk setrconport, and [p]jk setrconpassword.")
+            return
+
+        try:
+            # Send 'status' command via RCON
+            status_response = await self.bot.loop.run_in_executor(
+                self.executor, self.send_rcon_command, "status", rcon_host, rcon_port, rcon_password
+            )
+            status_lines = status_response.decode(errors='replace').splitlines()
+
+            # Parse status response
+            server_name = "Unknown"
+            mod_name = "Unknown"
+            mod_version = "Unknown"
+            map_name = "Unknown"
+            player_count = "0 humans, 0 bots"
+            uptime = "Unknown"
+            players = []
+
+            for line in status_lines:
+                if "hostname:" in line:
+                    server_name = line.split("hostname:")[1].strip()
+                elif "game    :" in line:
+                    mod_name = line.split("game    :")[1].strip()
+                elif "version :" in line:
+                    mod_version = line.split("version :")[1].strip()
+                elif "map     :" in line:
+                    map_name = line.split("map     :")[1].split()[0].strip()
+                elif "players :" in line:
+                    player_count = line.split("players :")[1].strip()
+                elif "uptime  :" in line:
+                    uptime = line.split("uptime  :")[1].strip()
+                elif re.match(r"^\s*\d+\s+\d+\s+\d+\s+.*$", line):
+                    parts = re.split(r"\s+", line.strip(), maxsplit=4)
+                    if len(parts) >= 4:
+                        player_name = parts[3].strip()
+                        players.append(player_name)
+
+            player_list = ", ".join(players) if players else "No players online"
+
+            # Create fancy embed
+            embed = discord.Embed(
+                title=f"🌌 {server_name} Status 🌌",
+                color=discord.Color.gold(),
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👥 Players", value=f"{player_count}", inline=True)
+            embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
+            embed.add_field(name="🎮 Mod", value=f"{mod_name} ({mod_version})", inline=True)
+            embed.add_field(name="⏰ Uptime", value=f"{uptime}", inline=True)
+            embed.add_field(name="📋 Online Players", value=player_list, inline=False)
+            embed.set_footer(text="✨ Updated on March 11, 2025 ✨", icon_url="https://cdn.discordapp.com/emojis/1219115870928900146.png")
+
+            await ctx.send(embed=embed)
+        except Exception as e:
+            print(f"Error fetching server status: {e}")
+            await ctx.send(f"Failed to retrieve server status: {e}")
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -131,17 +196,14 @@ class JKChatBridge(commands.Cog):
         discord_username = message.author.display_name
         message_content = self.replace_emojis_with_names(message.content)
         
-        # Check for URLs and block if found
         if self.url_pattern.search(message_content):
             print(f"Blocked Discord message with URL: {message_content}")
             return
 
-        # Initial prefix with username, subsequent chunks use minimal prefix
         initial_prefix = f"say ^5{{D}}^7{discord_username}^2: "
         continuation_prefix = "say "
-        max_length = 115  # Max length for initial message content
+        max_length = 115
         
-        # Smart split into chunks at word boundaries
         chunks = []
         remaining = message_content
         is_first_chunk = True
@@ -151,7 +213,7 @@ class JKChatBridge(commands.Cog):
                 chunks.append(remaining)
                 break
             split_point = remaining.rfind(' ', 0, current_max_length + 1)
-            if split_point == -1:  # No space found, force split at max_length
+            if split_point == -1:
                 split_point = current_max_length
             chunk = remaining[:split_point].strip()
             chunks.append(chunk)
@@ -175,7 +237,7 @@ class JKChatBridge(commands.Cog):
                 print(f"Sending RCON command (length {len(server_command)}): {server_command}")
                 await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, rcon_host, rcon_port, rcon_password)
                 print("RCON command sent successfully.")
-                await asyncio.sleep(0.1)  # Small delay to prevent flooding
+                await asyncio.sleep(0.1)
         except Exception as e:
             print(f"Error sending RCON command: {e}")
             await message.channel.send(f"Failed to send to game: {e}")
@@ -188,6 +250,7 @@ class JKChatBridge(commands.Cog):
             "😊": ":)",
             "😄": ":D",
             "😂": "XD",
+            "🤣": "xD",
             "😉": ";)",
             "😛": ":P",
             "😢": ":(",
@@ -211,6 +274,7 @@ class JKChatBridge(commands.Cog):
             ":)": "😊",
             ":D": "😄",
             "XD": "😂",
+            "xD": "🤣",
             ";)": "😉",
             ":P": "😛",
             ":(": "😢",
@@ -226,7 +290,7 @@ class JKChatBridge(commands.Cog):
         return text
 
     def send_rcon_command(self, command, host, port, password):
-        """Send an RCON command to the game server."""
+        """Send an RCON command to the game server and return response."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(5)
         packet = b'\xff\xff\xff\xffrcon ' + password.encode() + b' ' + command.encode()
@@ -234,6 +298,7 @@ class JKChatBridge(commands.Cog):
             sock.sendto(packet, (host, port))
             response, _ = sock.recvfrom(4096)
             print("RCON response:", response.decode(errors='replace'))
+            return response
         except socket.timeout:
             raise Exception("RCON command timed out.")
         except Exception as e:
@@ -279,11 +344,9 @@ class JKChatBridge(commands.Cog):
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
-                                # Check for URLs and block if found
                                 if self.url_pattern.search(message):
                                     print(f"Blocked game message with URL: {message}")
                                     continue
-                                # Convert text emotes to Discord emojis
                                 message = self.replace_text_emotes_with_emojis(message)
                                 discord_message = f"{custom_emoji} **{player_name}**: {message}"
                                 print(f"Sending to Discord channel {channel_id}: {discord_message}")
@@ -313,7 +376,7 @@ class JKChatBridge(commands.Cog):
                             if channel:
                                 await channel.send(leave_message)
                             if client_id in self.client_names:
-                                del self.client_names[client_id]  # Clean up
+                                del self.client_names[client_id]
             except FileNotFoundError:
                 print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
                 await asyncio.sleep(5)
