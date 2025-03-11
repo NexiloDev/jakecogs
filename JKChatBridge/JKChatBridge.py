@@ -129,7 +129,7 @@ class JKChatBridge(commands.Cog):
         
         # Initial prefix with username, subsequent chunks use minimal prefix
         initial_prefix = f"say ^5{{D}}^7{discord_username}^2: "
-        continuation_prefix = "say: "
+        continuation_prefix = "say "  # Changed from "say: " to "say "
         max_length = 115  # Max length for initial message content
         
         # Simple split into chunks
