@@ -197,9 +197,16 @@ class JKChatBridge(commands.Cog):
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
         discord_username = message.author.display_name
+        
+        # Replace typographic punctuation with ASCII equivalents in username
+        discord_username = discord_username.replace("’", "'").replace("‘", "'")  # Apostrophes
+        discord_username = discord_username.replace("“", "\"").replace("”", "\"")  # Quotes
+        discord_username = discord_username.replace("–", "-").replace("—", "-")  # Dashes
+        discord_username = discord_username.replace("…", "...")  # Ellipsis
+        
         message_content = message.content  # Start with raw content
 
-        # Replace typographic punctuation with ASCII equivalents
+        # Replace typographic punctuation with ASCII equivalents in message
         message_content = message_content.replace("’", "'").replace("‘", "'")  # Apostrophes
         message_content = message_content.replace("“", "\"").replace("”", "\"")  # Quotes
         message_content = message_content.replace("–", "-").replace("—", "-")  # Dashes
