@@ -34,9 +34,9 @@ class JKChatBridge(commands.Cog):
         print("JKChatBridge cog initialized.")
 
     @commands.group(name="jkbridge", aliases=["jk"])
-    @commands.is_owner()
+    @commands.is_owner()  # Restrict group to bot owner
     async def jkbridge(self, ctx):
-        """Configure the JK chat bridge (also available as 'jk')."""
+        """Configure the JK chat bridge (also available as 'jk'). Restricted to bot owner."""
         pass
 
     @jkbridge.command()
@@ -122,14 +122,14 @@ class JKChatBridge(commands.Cog):
         self.start_monitoring()
         await ctx.send("Log monitoring task reloaded.")
 
-    @jkbridge.command()
-    async def serverstatus(self, ctx):
-        """Display detailed server status with emojis."""
+    @jkbridge.command(name="status")  # Renamed to 'status', no owner restriction
+    async def status(self, ctx):
+        """Display detailed server status with emojis. Accessible to all users."""
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
         if not all([rcon_host, rcon_port, rcon_password]):
-            await ctx.send("RCON settings not fully configured. Use [p]jk setrconhost, [p]jk setrconport, and [p]jk setrconpassword.")
+            await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
 
         try:
@@ -142,7 +142,6 @@ class JKChatBridge(commands.Cog):
             # Parse status response
             server_name = "Unknown"
             mod_name = "Unknown"
-            mod_version = "Unknown"
             map_name = "Unknown"
             player_count = "0 humans, 0 bots"
             uptime = "Unknown"
@@ -150,11 +149,9 @@ class JKChatBridge(commands.Cog):
 
             for line in status_lines:
                 if "hostname:" in line:
-                    server_name = line.split("hostname:")[1].strip()
+                    server_name = self.remove_color_codes(line.split("hostname:")[1].strip().replace("Ç", ""))
                 elif "game    :" in line:
                     mod_name = line.split("game    :")[1].strip()
-                elif "version :" in line:
-                    mod_version = line.split("version :")[1].strip()
                 elif "map     :" in line:
                     map_name = line.split("map     :")[1].split()[0].strip()
                 elif "players :" in line:
@@ -164,20 +161,29 @@ class JKChatBridge(commands.Cog):
                 elif re.match(r"^\s*\d+\s+\d+\s+\d+\s+.*$", line):
                     parts = re.split(r"\s+", line.strip(), maxsplit=4)
                     if len(parts) >= 4:
-                        player_name = parts[3].strip()
+                        player_name = self.remove_color_codes(parts[3].strip())
                         players.append(player_name)
 
-            player_list = ", ".join(players) if players else "No players online"
+            # Format player list in two columns
+            player_list = "No players online"
+            if players:
+                half = (len(players) + 1) // 2  # Split into roughly equal halves
+                left_column = players[:half]
+                right_column = players[half:]
+                max_len = max(len(name) for name in left_column + right_column) if players else 0
+                player_lines = [f"{left_column[i]:<{max_len}}  {right_column[i] if i < len(right_column) else ''}" 
+                                for i in range(half)]
+                player_list = "```\n" + "\n".join(player_lines) + "\n```"
 
             # Create fancy embed
             embed = discord.Embed(
-                title=f"🌌 {server_name} Status 🌌",
+                title=f"🌌 {server_name} 🌌",
                 color=discord.Color.gold(),
                 timestamp=datetime.now()
             )
             embed.add_field(name="👥 Players", value=f"{player_count}", inline=True)
             embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
-            embed.add_field(name="🎮 Mod", value=f"{mod_name} ({mod_version})", inline=True)
+            embed.add_field(name="🎮 Mod", value=f"{mod_name}", inline=True)  # Version removed
             embed.add_field(name="⏰ Uptime", value=f"{uptime}", inline=True)
             embed.add_field(name="📋 Online Players", value=player_list, inline=False)
             embed.set_footer(text="✨ Updated on March 11, 2025 ✨", icon_url="https://cdn.discordapp.com/emojis/1219115870928900146.png")
@@ -225,7 +231,7 @@ class JKChatBridge(commands.Cog):
         rcon_password = await self.config.rcon_password()
         if not all([rcon_host, rcon_port, rcon_password]):
             print("RCON settings not fully configured.")
-            await message.channel.send("RCON settings not fully configured. Use [p]jk setrconhost, [p]jk setrconport, and [p]jk setrconpassword.")
+            await message.channel.send("RCON settings not fully configured. Please contact an admin.")
             return
         
         try:
