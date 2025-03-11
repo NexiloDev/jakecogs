@@ -2,7 +2,7 @@ import asyncio
 import discord
 from redbot.core import Config, commands
 import aiofiles
-from asyncrcon import AsyncRCON
+from asyncrcon import AsyncRCON, AuthenticationException, NullResponseException, MaxRetriesExceedException
 
 class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord."""
@@ -23,7 +23,7 @@ class JKChatBridge(commands.Cog):
     @commands.group(name="jkbridge", aliases=["jk"])
     @commands.is_owner()
     async def jkbridge(self, ctx):
-        """Configure the JK chat bridge. Use these commands to set up the game server connection."""
+        """Configure the JK chat bridge (also available as 'jk'). Use these commands to set up the game server connection."""
         pass
 
     @jkbridge.command()
@@ -68,12 +68,22 @@ class JKChatBridge(commands.Cog):
         if not all([server_host, server_port, rcon_password]):
             await message.channel.send("Server settings incomplete. Use `[p]jkbridge` or `[p]jk` to configure.")
             return
+        # Combine host and port into the address format expected by AsyncRCON
+        rcon_address = f"{server_host}:{server_port}"
         discord_username = message.author.name
         rcon_command = f"say [Discord] {discord_username}: {message.content}"
         try:
-            rcon = AsyncRCON(server_host, server_port, rcon_password)
-            response = await rcon.execute(rcon_command)  # Use execute instead of send
+            rcon = AsyncRCON(rcon_address, rcon_password)
+            await rcon.open_connection()
+            response = await rcon.command(rcon_command)
+            await rcon.close()
             print(f"RCON response: {response}")
+        except AuthenticationException:
+            await message.channel.send("Authentication failed. Check your RCON password.")
+        except NullResponseException:
+            await message.channel.send("Server returned an invalid or empty response.")
+        except MaxRetriesExceedException:
+            await message.channel.send("Maximum command retries exceeded.")
         except Exception as e:
             await message.channel.send(f"Failed to send to game: {e}")
 
