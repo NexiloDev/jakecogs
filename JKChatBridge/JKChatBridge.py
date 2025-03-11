@@ -2,7 +2,7 @@ import asyncio
 import discord
 from redbot.core import Config, commands
 import aiofiles
-from aiorcon import RCON as AsyncRconClient
+from asyncrcon import AsyncRCON  # Import asyncrcon instead of aiorcon
 
 class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord."""
@@ -71,8 +71,12 @@ class JKChatBridge(commands.Cog):
         discord_username = message.author.name
         rcon_command = f"say [Discord] {discord_username}: {message.content}"
         try:
-            async with AsyncRconClient(server_host, server_port, rcon_password) as rcon:
-                await rcon.send(rcon_command)
+            # Use asyncrcon to send the message
+            rcon = AsyncRCON(server_host, server_port, rcon_password)
+            await rcon.open()
+            response = await rcon.send(rcon_command)
+            await rcon.close()
+            print(f"RCON response: {response}")
         except Exception as e:
             await message.channel.send(f"Failed to send to game: {e}")
 
