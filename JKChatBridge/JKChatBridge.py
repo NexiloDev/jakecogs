@@ -21,7 +21,8 @@ class JKChatBridge(commands.Cog):
             rcon_password=None
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
-        self.bot.loop.create_task(self.monitor_log())
+        # Start the monitoring task and store it
+        self.monitor_task = self.bot.loop.create_task(self.monitor_log())
         print("JKChatBridge cog initialized.")
 
     @commands.group(name="jkbridge", aliases=["jk"])
@@ -130,47 +131,51 @@ class JKChatBridge(commands.Cog):
 
     async def monitor_log(self):
         """Monitor the latest Lugormod log file and send messages to Discord."""
-        while True:
-            log_base_path = await self.config.log_base_path()
-            channel_id = await self.config.discord_channel_id()
-            if not log_base_path or not channel_id:
-                print("Log base path or channel ID not set. Sleeping for 5 seconds.")
-                await asyncio.sleep(5)
-                continue
+        try:
+            while True:
+                log_base_path = await self.config.log_base_path()
+                channel_id = await self.config.discord_channel_id()
+                if not log_base_path or not channel_id:
+                    print("Log base path or channel ID not set. Sleeping for 5 seconds.")
+                    await asyncio.sleep(5)
+                    continue
 
-            # Get the current date without leading zeros
-            now = datetime.now()
-            month = str(now.month)  # e.g., '3' instead of '03'
-            day = str(now.day)      # e.g., '11' instead of '011'
-            year = str(now.year)    # e.g., '2025'
-            current_date = f"{month}-{day}-{year}"  # e.g., '3-11-2025'
+                # Get the current date without leading zeros
+                now = datetime.now()
+                month = str(now.month)  # e.g., '3' instead of '03'
+                day = str(now.day)      # e.g., '11' instead of '011'
+                year = str(now.year)    # e.g., '2025'
+                current_date = f"{month}-{day}-{year}"  # e.g., '3-11-2025'
 
-            log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
-            print(f"Attempting to monitor log file: {log_file_path}")
+                log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
+                print(f"Attempting to monitor log file: {log_file_path}")
 
-            try:
-                async with aiofiles.open(log_file_path, mode='r') as f:
-                    await f.seek(0, 2)  # Start at end of file
-                    print(f"Monitoring log file: {log_file_path}")
-                    while True:
-                        line = await f.readline()
-                        if not line:
-                            await asyncio.sleep(0.1)
-                            continue
-                        if "say:" in line and "tell:" not in line and "[Discord]" not in line:
-                            player_name, message = self.parse_chat_line(line)
-                            discord_message = f"[In-Game] {player_name}: {message}"
-                            print(f"Parsed log line - Player: {player_name}, Message: {message}")
-                            print(f"Sending to Discord: {discord_message}")
-                            channel = self.bot.get_channel(channel_id)
-                            if channel:
-                                await channel.send(discord_message)
-            except FileNotFoundError:
-                print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
-                await asyncio.sleep(5)
-            except Exception as e:
-                print(f"Log monitoring error: {e}")
-                await asyncio.sleep(5)
+                try:
+                    async with aiofiles.open(log_file_path, mode='r') as f:
+                        await f.seek(0, 2)  # Start at end of file
+                        print(f"Monitoring log file: {log_file_path}")
+                        while True:
+                            line = await f.readline()
+                            if not line:
+                                await asyncio.sleep(0.1)
+                                continue
+                            if "say:" in line and "tell:" not in line and "[Discord]" not in line:
+                                player_name, message = self.parse_chat_line(line)
+                                discord_message = f"[In-Game] {player_name}: {message}"
+                                print(f"Parsed log line - Player: {player_name}, Message: {message}")
+                                print(f"Sending to Discord: {discord_message}")
+                                channel = self.bot.get_channel(channel_id)
+                                if channel:
+                                    await channel.send(discord_message)
+                except FileNotFoundError:
+                    print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
+                    await asyncio.sleep(5)
+                except Exception as e:
+                    print(f"Log monitoring error: {e}")
+                    await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            print("Log monitoring task canceled.")
+            raise
 
     def parse_chat_line(self, line):
         """Parse a chat line from the log into player name and message."""
@@ -182,5 +187,6 @@ class JKChatBridge(commands.Cog):
 
     def cog_unload(self):
         """Clean up when the cog is unloaded."""
-        self.executor.shutdown()
+        self.monitor_task.cancel()  # Cancel the monitoring task
+        self.executor.shutdown(wait=False)  # Shut down the thread pool
         print("JKChatBridge cog unloaded.")
