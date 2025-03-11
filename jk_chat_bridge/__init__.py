@@ -1,6 +1,6 @@
 from redbot.core.utils import get_end_user_data_statement
 
-from .JKChatBridge import JKChatBridge  # Adjust to match your cog's class name
+from .JKChatBridge import JKChatBridge
 
 __red_end_user_data_statement__ = get_end_user_data_statement(__file__)
 
