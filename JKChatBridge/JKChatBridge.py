@@ -20,7 +20,7 @@ class JKChatBridge(commands.Cog):
             rcon_host="127.0.0.1",
             rcon_port=29070,
             rcon_password=None,
-            custom_emoji="<:jk:1219115870928900146>"
+            custom_emoji="<:jk:1219115870928900146>"  # Default chat emoji
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
@@ -73,7 +73,7 @@ class JKChatBridge(commands.Cog):
 
     @jkbridge.command()
     async def setcustomemoji(self, ctx, emoji: str):
-        """Set the custom emoji for game-to-Discord messages (e.g., <:jk:1219115870928900146>)."""
+        """Set the custom emoji for game-to-Discord chat messages (e.g., <:jk:1219115870928900146>)."""
         await self.config.custom_emoji.set(emoji)
         print(f"Custom emoji set to: {emoji}")
         await ctx.send(f"Custom emoji set to: {emoji}")
@@ -126,7 +126,17 @@ class JKChatBridge(commands.Cog):
             return
         discord_username = message.author.display_name
         message_content = self.replace_emojis_with_names(message.content)
-        server_command = f"say ^5{{D}}^7{discord_username}^2: {message_content}"
+        
+        # Calculate max message length with a fixed limit of 100 characters
+        prefix = f"say ^5{{D}}^7{discord_username}^2: "
+        max_length = 100  # Fixed at 100 for Discord usernames
+        
+        # Split message into chunks if too long
+        if len(message_content) > max_length:
+            chunks = [message_content[i:i + max_length] for i in range(0, len(message_content), max_length)]
+        else:
+            chunks = [message_content]
+
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
@@ -134,10 +144,14 @@ class JKChatBridge(commands.Cog):
             print("RCON settings not fully configured.")
             await message.channel.send("RCON settings not fully configured. Use [p]jk setrconhost, [p]jk setrconport, and [p]jk setrconpassword.")
             return
+        
         try:
-            print(f"Sending RCON command: {server_command}")
-            await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, rcon_host, rcon_port, rcon_password)
-            print("RCON command sent successfully.")
+            for chunk in chunks:
+                server_command = f"say ^5{{D}}^7{discord_username}^2: {chunk}"
+                print(f"Sending RCON command (length {len(server_command)}): {server_command}")
+                await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, rcon_host, rcon_port, rcon_password)
+                print("RCON command sent successfully.")
+                await asyncio.sleep(0.1)  # Small delay to prevent flooding
         except Exception as e:
             print(f"Error sending RCON command: {e}")
             await message.channel.send(f"Failed to send to game: {e}")
@@ -212,7 +226,6 @@ class JKChatBridge(commands.Cog):
                             await asyncio.sleep(0.1)
                             continue
                         line = line.strip()
-                        # Chat messages
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
@@ -222,7 +235,6 @@ class JKChatBridge(commands.Cog):
                                     await channel.send(discord_message)
                                 else:
                                     print(f"Channel {channel_id} not found!")
-                        # Update client name from ClientUserinfoChanged
                         elif "ClientUserinfoChanged handling info:" in line:
                             client_id = line.split("ClientUserinfoChanged handling info: ")[1].split()[0]
                             name_match = re.search(r'\\name\\([^\\]+)', line)
@@ -230,19 +242,17 @@ class JKChatBridge(commands.Cog):
                                 player_name = self.remove_color_codes(name_match.group(1))
                                 self.client_names[client_id] = player_name
                                 print(f"Updated name for client {client_id}: {player_name}")
-                        # Player joins
                         elif "ClientBegin:" in line:
                             client_id = line.split("ClientBegin: ")[1].strip()
                             player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
-                            join_message = f"{custom_emoji} **{player_name}** has joined the game!"
+                            join_message = f"<:jk_connect:1349009924306374756> **{player_name}** has joined the game!"
                             print(f"Sending to Discord channel {channel_id}: {join_message}")
                             if channel:
                                 await channel.send(join_message)
-                        # Player disconnects
                         elif "ClientDisconnect:" in line:
                             client_id = line.split("ClientDisconnect: ")[1].strip()
                             player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
-                            leave_message = f"{custom_emoji} **{player_name}** has disconnected."
+                            leave_message = f"<:jk_disconnect:1349010016044187713> **{player_name}** has disconnected."
                             print(f"Sending to Discord channel {channel_id}: {leave_message}")
                             if channel:
                                 await channel.send(leave_message)
