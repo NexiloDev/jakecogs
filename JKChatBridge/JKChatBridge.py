@@ -102,10 +102,13 @@ class JKChatBridge(commands.Cog):
         discord_username = message.author.name
         rcon_command = f"say [Discord] {discord_username}: {message.content}"
         try:
-            print(f"Attempting connection to {rcon_address} with password {rcon_password}")
+            print(f"Attempting connection to {rcon_address} with raw password: {rcon_password}")
             rcon = AsyncRCON(rcon_address, rcon_password)
+            print(f"Opening connection to {rcon_address}")
             await rcon.open_connection()
+            print(f"Sending command: {rcon_command}")
             response = await rcon.command(rcon_command)
+            print(f"Closing connection to {rcon_address}")
             await rcon.close()
             print(f"RCON response: {response}")
         except AuthenticationException:
