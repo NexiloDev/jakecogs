@@ -25,6 +25,7 @@ class JKChatBridge(commands.Cog):
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
+        self.client_names = {}  # Store client ID to name mapping
         self.start_monitoring()
         print("JKChatBridge cog initialized.")
 
@@ -113,6 +114,7 @@ class JKChatBridge(commands.Cog):
                 await self.monitor_task
             except asyncio.CancelledError:
                 pass
+        self.client_names.clear()  # Reset client names on reload
         self.start_monitoring()
         await ctx.send("Log monitoring task reloaded.")
 
@@ -220,22 +222,32 @@ class JKChatBridge(commands.Cog):
                                     await channel.send(discord_message)
                                 else:
                                     print(f"Channel {channel_id} not found!")
+                        # Update client name from ClientUserinfoChanged
+                        elif "ClientUserinfoChanged handling info:" in line:
+                            client_id = line.split("ClientUserinfoChanged handling info: ")[1].split()[0]
+                            name_match = re.search(r'\\name\\([^\\]+)', line)
+                            if name_match:
+                                player_name = self.remove_color_codes(name_match.group(1))
+                                self.client_names[client_id] = player_name
+                                print(f"Updated name for client {client_id}: {player_name}")
                         # Player joins
-                        elif "entered the game" in line:
-                            player_name = line.split("entered the game")[0].strip()
-                            player_name = self.remove_color_codes(player_name)
+                        elif "ClientBegin:" in line:
+                            client_id = line.split("ClientBegin: ")[1].strip()
+                            player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
                             join_message = f"{custom_emoji} **{player_name}** has joined the game!"
                             print(f"Sending to Discord channel {channel_id}: {join_message}")
                             if channel:
                                 await channel.send(join_message)
                         # Player disconnects
-                        elif "disconnected" in line:
-                            player_name = line.split("disconnected")[0].strip()
-                            player_name = self.remove_color_codes(player_name)
+                        elif "ClientDisconnect:" in line:
+                            client_id = line.split("ClientDisconnect: ")[1].strip()
+                            player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
                             leave_message = f"{custom_emoji} **{player_name}** has disconnected."
                             print(f"Sending to Discord channel {channel_id}: {leave_message}")
                             if channel:
                                 await channel.send(leave_message)
+                            if client_id in self.client_names:
+                                del self.client_names[client_id]  # Clean up
             except FileNotFoundError:
                 print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
                 await asyncio.sleep(5)
