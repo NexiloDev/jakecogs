@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 import socket
 from concurrent.futures import ThreadPoolExecutor
+import re
 
 class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with dynamic log file support for Lugormod."""
@@ -163,12 +164,12 @@ class JKChatBridge(commands.Cog):
                             continue
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
-                            discord_message = f"[In-Game] {player_name}: {message}"
-                            print(f"Parsed log line - Player: {player_name}, Message: {message}")
-                            print(f"Sending to Discord: {discord_message}")
-                            channel = self.bot.get_channel(channel_id)
-                            if channel:
-                                await channel.send(discord_message)
+                            if player_name and message:
+                                discord_message = f"[🎮 In-Game] **{player_name}**: {message}"
+                                print(f"Sending to Discord: {discord_message}")
+                                channel = self.bot.get_channel(channel_id)
+                                if channel:
+                                    await channel.send(discord_message)
             except FileNotFoundError:
                 print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
                 await asyncio.sleep(5)
@@ -182,13 +183,24 @@ class JKChatBridge(commands.Cog):
             self.monitor_task = self.bot.loop.create_task(self.monitor_log())
             print(f"Monitor task created: {id(self.monitor_task)}")
 
+    def remove_color_codes(self, text):
+        """Remove Jedi Academy color codes (e.g., ^1, ^7) from text."""
+        return re.sub(r'\^\d', '', text)
+
     def parse_chat_line(self, line):
         """Parse a chat line from the log into player name and message."""
-        parts = line.split(":", 2)
-        player_name = parts[0].strip()
-        message = parts[2].strip() if len(parts) > 2 else ""
-        print(f"Parsed log line - Player: {player_name}, Message: {message}")
-        return player_name, message
+        say_index = line.find("say: ")
+        if say_index != -1:
+            chat_part = line[say_index + 5:]  # Skip past "say: "
+            colon_index = chat_part.find(": ")
+            if colon_index != -1:
+                player_name = chat_part[:colon_index].strip()
+                message = chat_part[colon_index + 2:].strip()
+                # Remove color codes from both
+                player_name = self.remove_color_codes(player_name)
+                message = self.remove_color_codes(message)
+                return player_name, message
+        return None, None
 
     async def cog_unload(self):
         """Clean up when the cog is unloaded."""
