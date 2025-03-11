@@ -2,7 +2,7 @@ import asyncio
 import discord
 from redbot.core import Config, commands
 import aiofiles
-from asyncrcon import AsyncRCON  # Import asyncrcon instead of aiorcon
+from asyncrcon import AsyncRCON
 
 class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord."""
@@ -19,8 +19,8 @@ class JKChatBridge(commands.Cog):
         )
         self.bot.loop.create_task(self.monitor_log())
 
-    # Configuration commands
-    @commands.group()
+    # Configuration commands with alias 'jk'
+    @commands.group(name="jkbridge", aliases=["jk"])
     @commands.is_owner()
     async def jkbridge(self, ctx):
         """Configure the JK chat bridge. Use these commands to set up the game server connection."""
@@ -66,16 +66,13 @@ class JKChatBridge(commands.Cog):
         server_port = await self.config.server_port()
         rcon_password = await self.config.rcon_password()
         if not all([server_host, server_port, rcon_password]):
-            await message.channel.send("Server settings incomplete. Use `[p]jkbridge` to configure.")
+            await message.channel.send("Server settings incomplete. Use `[p]jkbridge` or `[p]jk` to configure.")
             return
         discord_username = message.author.name
         rcon_command = f"say [Discord] {discord_username}: {message.content}"
         try:
-            # Use asyncrcon to send the message
             rcon = AsyncRCON(server_host, server_port, rcon_password)
-            await rcon.open()
-            response = await rcon.send(rcon_command)
-            await rcon.close()
+            response = await rcon.execute(rcon_command)  # Use execute instead of send
             print(f"RCON response: {response}")
         except Exception as e:
             await message.channel.send(f"Failed to send to game: {e}")
