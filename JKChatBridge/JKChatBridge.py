@@ -107,11 +107,10 @@ class JKChatBridge(commands.Cog):
         channel_id = await self.config.discord_channel_id()
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
-        # Use the server-specific nickname (or global username if no nickname is set)
         discord_username = message.author.display_name
-        # Convert emojis to their names (e.g., 😄 -> :smile:)
         message_content = self.replace_emojis_with_names(message.content)
-        server_command = f"say {discord_username}: {message_content}"
+        # Add ^7 for white color before the username
+        server_command = f"say ^7{discord_username}: {message_content}"
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
@@ -128,9 +127,25 @@ class JKChatBridge(commands.Cog):
             await message.channel.send(f"Failed to send to game: {e}")
 
     def replace_emojis_with_names(self, text):
-        """Replace Discord emojis with their names (e.g., 😄 -> :smile:)."""
+        """Replace Discord emojis with their names, including standard Unicode emojis."""
+        # First handle custom emojis
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
+        # Then handle standard Unicode emojis
+        emoji_map = {
+            "😄": ":smile:",
+            "😂": ":joy:",
+            "😊": ":blush:",
+            "😉": ":wink:",
+            "😍": ":heart_eyes:",
+            "😢": ":cry:",
+            "😡": ":angry:",
+            "👍": ":thumbsup:",
+            "👎": ":thumbsdown:",
+            # Add more common emojis as needed
+        }
+        for unicode_emoji, name in emoji_map.items():
+            text = text.replace(unicode_emoji, name)
         return text
 
     def send_rcon_command(self, command, host, port, password):
@@ -184,7 +199,8 @@ class JKChatBridge(commands.Cog):
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
-                                discord_message = f"[{custom_emoji}] **{player_name}**: {message}"
+                                # Add spaces around the custom emoji
+                                discord_message = f"[ {custom_emoji} ] **{player_name}**: {message}"
                                 print(f"Sending to Discord: {discord_message}")
                                 channel = self.bot.get_channel(channel_id)
                                 if channel:
@@ -234,3 +250,7 @@ class JKChatBridge(commands.Cog):
                 pass
         self.executor.shutdown(wait=False)
         print("JKChatBridge cog unloaded.")
+
+async def setup(bot):
+    cog = JKChatBridge(bot)
+    await bot.add_cog(cog)
