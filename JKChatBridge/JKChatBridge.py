@@ -132,24 +132,11 @@ class JKChatBridge(commands.Cog):
         continuation_prefix = "say: "
         max_length = 115  # Max length for initial message content
         
-        # Smart split into chunks at word boundaries
-        chunks = []
-        remaining = message_content
-        is_first_chunk = True
-        while remaining:
-            current_max_length = max_length if is_first_chunk else (128 - len(continuation_prefix))
-            if len(remaining) <= current_max_length:
-                chunks.append(remaining)
-                break
-            # Find the last space before current_max_length
-            split_point = remaining.rfind(' ', 0, current_max_length + 1)
-            if split_point == -1:  # No space found, force split at max_length
-                split_point = current_max_length
-            chunk = remaining[:split_point].strip()
-            chunks.append(chunk)
-            remaining = remaining[split_point:].strip()
-            is_first_chunk = False
-            print(f"Split chunk: '{chunk}', Remaining: '{remaining}'")
+        # Simple split into chunks
+        if len(message_content) > max_length:
+            chunks = [message_content[i:i + max_length] for i in range(0, len(message_content), max_length)]
+        else:
+            chunks = [message_content]
 
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
@@ -159,21 +146,19 @@ class JKChatBridge(commands.Cog):
             await message.channel.send("RCON settings not fully configured. Use [p]jk setrconhost, [p]jk setrconport, and [p]jk setrconpassword.")
             return
         
-        print(f"Total chunks to send: {len(chunks)}")
-        for i, chunk in enumerate(chunks):
-            if i == 0:
-                server_command = f"{initial_prefix}{chunk}"
-            else:
-                server_command = f"{continuation_prefix}{chunk}"
-            print(f"Sending chunk {i + 1}/{len(chunks)} (length {len(server_command)}): {server_command}")
-            try:
+        try:
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    server_command = f"{initial_prefix}{chunk}"
+                else:
+                    server_command = f"{continuation_prefix}{chunk}"
+                print(f"Sending RCON command (length {len(server_command)}): {server_command}")
                 await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, rcon_host, rcon_port, rcon_password)
-                print(f"Chunk {i + 1} sent successfully.")
+                print("RCON command sent successfully.")
                 await asyncio.sleep(0.1)  # Small delay to prevent flooding
-            except Exception as e:
-                print(f"Error sending chunk {i + 1}: {e}")
-                # Continue with next chunk even if one fails
-                continue
+        except Exception as e:
+            print(f"Error sending RCON command: {e}")
+            await message.channel.send(f"Failed to send to game: {e}")
 
     def replace_emojis_with_names(self, text):
         """Replace Discord emojis with their names, including standard Unicode emojis."""
