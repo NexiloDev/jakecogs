@@ -102,14 +102,17 @@ class JKChatBridge(commands.Cog):
         discord_username = message.author.name
         rcon_command = f"say [Discord] {discord_username}: {message.content}"
         try:
+            print(f"Attempting connection to {rcon_address} with password {rcon_password}")
             rcon = AsyncRCON(rcon_address, rcon_password)
             await rcon.open_connection()
             response = await rcon.command(rcon_command)
             await rcon.close()
             print(f"RCON response: {response}")
         except AuthenticationException:
+            print("Authentication failed during RCON connection.")
             await message.channel.send("Authentication failed. Check your RCON password.")
         except Exception as e:
+            print(f"Connection error details: {e}")
             await message.channel.send(f"Failed to send to game: {e}")
 
     # Monitor game log for public messages
