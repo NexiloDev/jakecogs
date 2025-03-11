@@ -2,7 +2,7 @@ import asyncio
 import discord
 from redbot.core import Config, commands
 import aiofiles
-from asyncrcon import AsyncRCON, AuthenticationException, NullResponseException, MaxRetriesExceedException
+from asyncrcon import AsyncRCON, AuthenticationException
 
 class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord."""
@@ -80,10 +80,6 @@ class JKChatBridge(commands.Cog):
             print(f"RCON response: {response}")
         except AuthenticationException:
             await message.channel.send("Authentication failed. Check your RCON password.")
-        except NullResponseException:
-            await message.channel.send("Server returned an invalid or empty response.")
-        except MaxRetriesExceedException:
-            await message.channel.send("Maximum command retries exceeded.")
         except Exception as e:
             await message.channel.send(f"Failed to send to game: {e}")
 
