@@ -101,6 +101,20 @@ class JKChatBridge(commands.Cog):
         print("Showing settings:", settings_message)
         await ctx.send(settings_message)
 
+    @jkbridge.command()
+    async def reloadmonitor(self, ctx):
+        """Force reload the log monitoring task."""
+        if self.monitor_task and not self.monitor_task.done():
+            print(f"Canceling existing monitor task: {id(self.monitor_task)}")
+            self.monitoring = False
+            self.monitor_task.cancel()
+            try:
+                await self.monitor_task
+            except asyncio.CancelledError:
+                pass
+        self.start_monitoring()
+        await ctx.send("Log monitoring task reloaded.")
+
     @commands.Cog.listener()
     async def on_message(self, message):
         """Handle messages from Discord and send them to the game server via RCON."""
@@ -109,7 +123,8 @@ class JKChatBridge(commands.Cog):
             return
         discord_username = message.author.display_name
         message_content = self.replace_emojis_with_names(message.content)
-        server_command = f"say ^5{{D}}^7{discord_username}^2: {message_content}"
+        # Updated format: ^5{Discord} ^7username^2
+        server_command = f"say ^5{{Discord}} ^7{discord_username}^2: {message_content}"
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
@@ -177,12 +192,16 @@ class JKChatBridge(commands.Cog):
                     await asyncio.sleep(5)
                     continue
 
+                # Add debug logging to verify channel ID
+                channel = self.bot.get_channel(channel_id)
+                print(f"Using channel ID: {channel_id}, Channel name: {channel.name if channel else 'Not found'}")
+
                 # Get the current date without leading zeros
                 now = datetime.now()
-                month = str(now.month)  # e.g., '3' instead of '03'
-                day = str(now.day)      # e.g., '11' instead of '011'
-                year = str(now.year)    # e.g., '2025'
-                current_date = f"{month}-{day}-{year}"  # e.g., '3-11-2025'
+                month = str(now.month)
+                day = str(now.day)
+                year = str(now.year)
+                current_date = f"{month}-{day}-{year}"
 
                 log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
                 print(f"Attempting to monitor log file: {log_file_path}")
@@ -198,12 +217,13 @@ class JKChatBridge(commands.Cog):
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
-                                # Use the raw custom_emoji string without extra brackets
                                 discord_message = f"{custom_emoji} **{player_name}**: {message}"
-                                print(f"Sending to Discord: {discord_message}")
-                                channel = self.bot.get_channel(channel_id)
+                                print(f"Sending to Discord channel {channel_id}: {discord_message}")
+                                channel = self.bot.get_channel(channel_id)  # Refresh channel object
                                 if channel:
                                     await channel.send(discord_message)
+                                else:
+                                    print(f"Channel {channel_id} not found!")
             except FileNotFoundError:
                 print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
                 await asyncio.sleep(5)
