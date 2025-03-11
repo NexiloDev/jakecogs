@@ -26,6 +26,10 @@ class JKChatBridge(commands.Cog):
         self.monitoring = False
         self.monitor_task = None
         self.client_names = {}  # Store client ID to name mapping
+        self.url_pattern = re.compile(
+            r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
+            re.IGNORECASE
+        )
         self.start_monitoring()
         print("JKChatBridge cog initialized.")
 
@@ -127,6 +131,11 @@ class JKChatBridge(commands.Cog):
         discord_username = message.author.display_name
         message_content = self.replace_emojis_with_names(message.content)
         
+        # Check for URLs and block if found
+        if self.url_pattern.search(message_content):
+            print(f"Blocked Discord message with URL: {message_content}")
+            return
+
         # Initial prefix with username, subsequent chunks use minimal prefix
         initial_prefix = f"say ^5{{D}}^7{discord_username}^2: "
         continuation_prefix = "say "
@@ -173,26 +182,24 @@ class JKChatBridge(commands.Cog):
 
     def replace_emojis_with_names(self, text):
         """Replace Discord emojis with common text emoticons or names for Jedi Academy."""
-        # Custom Discord emojis
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
-        # Common Unicode emojis mapped to text emoticons
         emoji_map = {
-            "😊": ":)",    # Smiling face
-            "😄": ":D",    # Big smile
-            "😂": "XD",    # Laughing
-            "😉": ";)",    # Wink
-            "😛": ":P",    # Tongue out
-            "😢": ":(",    # Sad
-            "😡": ">:(",   # Angry
-            "👍": ":+1:",  # Thumbs up
-            "👎": ":-1:",  # Thumbs down
-            "❤️": "<3",    # Heart
-            "💖": "<3",    # Sparkling heart
-            "😍": ":*",    # Heart eyes / kiss
-            "🙂": ":)",    # Slight smile
-            "😣": ":S",    # Confused / pensive
-            "😜": ":P"     # Winking tongue out
+            "😊": ":)",
+            "😄": ":D",
+            "😂": "XD",
+            "😉": ";)",
+            "😛": ":P",
+            "😢": ":(",
+            "😡": ">:(",
+            "👍": ":+1:",
+            "👎": ":-1:",
+            "❤️": "<3",
+            "💖": "<3",
+            "😍": ":*",
+            "🙂": ":)",
+            "😣": ":S",
+            "😜": ":P"
         }
         for unicode_emoji, text_emote in emoji_map.items():
             text = text.replace(unicode_emoji, text_emote)
@@ -272,6 +279,10 @@ class JKChatBridge(commands.Cog):
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
+                                # Check for URLs and block if found
+                                if self.url_pattern.search(message):
+                                    print(f"Blocked game message with URL: {message}")
+                                    continue
                                 # Convert text emotes to Discord emojis
                                 message = self.replace_text_emotes_with_emojis(message)
                                 discord_message = f"{custom_emoji} **{player_name}**: {message}"
