@@ -19,7 +19,8 @@ class JKChatBridge(commands.Cog):
             discord_channel_id=None,
             rcon_host="127.0.0.1",
             rcon_port=29070,
-            rcon_password=None
+            rcon_password=None,
+            custom_emoji="<:jk:1234567890>"  # Replace with your custom emoji's full reference
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False  # Control flag for monitoring
@@ -69,6 +70,13 @@ class JKChatBridge(commands.Cog):
         await ctx.send("RCON password set.")
 
     @jkbridge.command()
+    async def setcustomemoji(self, ctx, emoji: str):
+        """Set the custom emoji for game-to-Discord messages (e.g., <:jk:1234567890>)."""
+        await self.config.custom_emoji.set(emoji)
+        print(f"Custom emoji set to: {emoji}")
+        await ctx.send(f"Custom emoji set to: {emoji}")
+
+    @jkbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the JK chat bridge."""
         log_base_path = await self.config.log_base_path()
@@ -76,6 +84,7 @@ class JKChatBridge(commands.Cog):
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
+        custom_emoji = await self.config.custom_emoji()
         channel_name = "Not set"
         if discord_channel_id:
             channel = self.bot.get_channel(discord_channel_id)
@@ -87,6 +96,7 @@ class JKChatBridge(commands.Cog):
             f"RCON Host: {rcon_host or 'Not set'}\n"
             f"RCON Port: {rcon_port or 'Not set'}\n"
             f"RCON Password: {'Set' if rcon_password else 'Not set'}\n"
+            f"Custom Emoji: {custom_emoji or 'Not set'}"
         )
         print("Showing settings:", settings_message)
         await ctx.send(settings_message)
@@ -97,8 +107,11 @@ class JKChatBridge(commands.Cog):
         channel_id = await self.config.discord_channel_id()
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
-        discord_username = message.author.name
-        server_command = f"say [Discord] {discord_username}: {message.content}"
+        # Use the server-specific nickname (or global username if no nickname is set)
+        discord_username = message.author.display_name
+        # Convert emojis to their names (e.g., 😄 -> :smile:)
+        message_content = self.replace_emojis_with_names(message.content)
+        server_command = f"say {discord_username}: {message_content}"
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
@@ -110,10 +123,15 @@ class JKChatBridge(commands.Cog):
             print(f"Sending RCON command: {server_command}")
             await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, rcon_host, rcon_port, rcon_password)
             print("RCON command sent successfully.")
-            await message.channel.send("Message sent to game server.")
         except Exception as e:
             print(f"Error sending RCON command: {e}")
             await message.channel.send(f"Failed to send to game: {e}")
+
+    def replace_emojis_with_names(self, text):
+        """Replace Discord emojis with their names (e.g., 😄 -> :smile:)."""
+        for emoji in self.bot.emojis:
+            text = text.replace(str(emoji), f":{emoji.name}:")
+        return text
 
     def send_rcon_command(self, command, host, port, password):
         """Send an RCON command to the game server."""
@@ -139,8 +157,9 @@ class JKChatBridge(commands.Cog):
             try:
                 log_base_path = await self.config.log_base_path()
                 channel_id = await self.config.discord_channel_id()
-                if not log_base_path or not channel_id:
-                    print("Log base path or channel ID not set. Sleeping for 5 seconds.")
+                custom_emoji = await self.config.custom_emoji()
+                if not log_base_path or not channel_id or not custom_emoji:
+                    print("Log base path, channel ID, or custom emoji not set. Sleeping for 5 seconds.")
                     await asyncio.sleep(5)
                     continue
 
@@ -165,7 +184,7 @@ class JKChatBridge(commands.Cog):
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
-                                discord_message = f"[🎮 In-Game] **{player_name}**: {message}"
+                                discord_message = f"[{custom_emoji}] **{player_name}**: {message}"
                                 print(f"Sending to Discord: {discord_message}")
                                 channel = self.bot.get_channel(channel_id)
                                 if channel:
