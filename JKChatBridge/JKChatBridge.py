@@ -20,7 +20,7 @@ class JKChatBridge(commands.Cog):
             rcon_host="127.0.0.1",
             rcon_port=29070,
             rcon_password=None,
-            custom_emoji="<:jk:1234567890>"  # Replace with your custom emoji's full reference
+            custom_emoji="<:jk:1219115870928900146>"  # Updated with proper emoji reference
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False  # Control flag for monitoring
@@ -71,7 +71,7 @@ class JKChatBridge(commands.Cog):
 
     @jkbridge.command()
     async def setcustomemoji(self, ctx, emoji: str):
-        """Set the custom emoji for game-to-Discord messages (e.g., <:jk:1234567890>)."""
+        """Set the custom emoji for game-to-Discord messages (e.g., <:jk:1219115870928900146>)."""
         await self.config.custom_emoji.set(emoji)
         print(f"Custom emoji set to: {emoji}")
         await ctx.send(f"Custom emoji set to: {emoji}")
@@ -109,8 +109,8 @@ class JKChatBridge(commands.Cog):
             return
         discord_username = message.author.display_name
         message_content = self.replace_emojis_with_names(message.content)
-        # Add ^7 for white color before the username
-        server_command = f"say ^7{discord_username}: {message_content}"
+        # Updated format: ^5{Discord} ^7username^2
+        server_command = f"say ^5{{Discord}} ^7{discord_username}^2: {message_content}"
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
@@ -199,8 +199,8 @@ class JKChatBridge(commands.Cog):
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
-                                # Add spaces around the custom emoji
-                                discord_message = f"[ {custom_emoji} ] **{player_name}**: {message}"
+                                # Use the raw custom_emoji string without extra brackets
+                                discord_message = f"{custom_emoji} **{player_name}**: {message}"
                                 print(f"Sending to Discord: {discord_message}")
                                 channel = self.bot.get_channel(channel_id)
                                 if channel:
