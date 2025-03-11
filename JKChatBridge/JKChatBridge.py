@@ -129,14 +129,25 @@ class JKChatBridge(commands.Cog):
         
         # Initial prefix with username, subsequent chunks use minimal prefix
         initial_prefix = f"say ^5{{D}}^7{discord_username}^2: "
-        continuation_prefix = "say "  # Changed from "say: " to "say "
+        continuation_prefix = "say "
         max_length = 115  # Max length for initial message content
         
-        # Simple split into chunks
-        if len(message_content) > max_length:
-            chunks = [message_content[i:i + max_length] for i in range(0, len(message_content), max_length)]
-        else:
-            chunks = [message_content]
+        # Smart split into chunks at word boundaries
+        chunks = []
+        remaining = message_content
+        is_first_chunk = True
+        while remaining:
+            current_max_length = max_length if is_first_chunk else (128 - len(continuation_prefix))
+            if len(remaining) <= current_max_length:
+                chunks.append(remaining)
+                break
+            split_point = remaining.rfind(' ', 0, current_max_length + 1)
+            if split_point == -1:  # No space found, force split at max_length
+                split_point = current_max_length
+            chunk = remaining[:split_point].strip()
+            chunks.append(chunk)
+            remaining = remaining[split_point:].strip()
+            is_first_chunk = False
 
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
