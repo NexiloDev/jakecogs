@@ -369,14 +369,14 @@ class JKChatBridge(commands.Cog):
                             player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
                             join_message = f"<:jk_connect:1349009924306374756> **{player_name}** has joined the game!"
                             print(f"Sending to Discord channel {channel_id}: {join_message}")
-                            if channel:
+                            if channel and not player_name.endswith("-Bot"):  # Skip bots
                                 await channel.send(join_message)
                         elif "ClientDisconnect:" in line:
                             client_id = line.split("ClientDisconnect: ")[1].strip()
                             player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
                             leave_message = f"<:jk_disconnect:1349010016044187713> **{player_name}** has disconnected."
                             print(f"Sending to Discord channel {channel_id}: {leave_message}")
-                            if channel:
+                            if channel and not player_name.endswith("-Bot"):  # Skip bots
                                 await channel.send(leave_message)
                             if client_id in self.client_names:
                                 del self.client_names[client_id]
