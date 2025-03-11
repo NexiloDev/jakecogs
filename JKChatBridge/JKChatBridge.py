@@ -127,15 +127,28 @@ class JKChatBridge(commands.Cog):
         discord_username = message.author.display_name
         message_content = self.replace_emojis_with_names(message.content)
         
-        # Calculate max message length with a fixed limit of 100 characters
-        prefix = f"say ^5{{D}}^7{discord_username}^2: "
-        max_length = 100  # Fixed at 100 for Discord usernames
+        # Initial prefix with username, subsequent chunks use minimal prefix
+        initial_prefix = f"say ^5{{D}}^7{discord_username}^2: "
+        continuation_prefix = "say: "
+        max_length = 115  # Max length for message content
         
-        # Split message into chunks if too long
-        if len(message_content) > max_length:
-            chunks = [message_content[i:i + max_length] for i in range(0, len(message_content), max_length)]
-        else:
-            chunks = [message_content]
+        # Smart split into chunks at word boundaries
+        chunks = []
+        remaining = message_content
+        is_first_chunk = True
+        while remaining:
+            current_max_length = max_length if is_first_chunk else (128 - len(continuation_prefix))
+            if len(remaining) <= current_max_length:
+                chunks.append(remaining)
+                break
+            # Find the last space before current_max_length
+            split_point = remaining.rfind(' ', 0, current_max_length + 1)
+            if split_point == -1:  # No space found, force split at max_length
+                split_point = current_max_length
+            chunk = remaining[:split_point].strip()
+            chunks.append(chunk)
+            remaining = remaining[split_point:].strip()
+            is_first_chunk = False
 
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
@@ -146,8 +159,11 @@ class JKChatBridge(commands.Cog):
             return
         
         try:
-            for chunk in chunks:
-                server_command = f"say ^5{{D}}^7{discord_username}^2: {chunk}"
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    server_command = f"{initial_prefix}{chunk}"
+                else:
+                    server_command = f"{continuation_prefix}{chunk}"
                 print(f"Sending RCON command (length {len(server_command)}): {server_command}")
                 await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, rcon_host, rcon_port, rcon_password)
                 print("RCON command sent successfully.")
