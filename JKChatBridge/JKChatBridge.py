@@ -4,18 +4,23 @@ from redbot.core import Config, commands
 import aiofiles
 import os
 from datetime import datetime
+import socket
+from concurrent.futures import ThreadPoolExecutor
 
 class JKChatBridge(commands.Cog):
-    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via commands.txt, with dynamic log file support for Lugormod."""
+    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with dynamic log file support for Lugormod."""
 
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.config.register_global(
-            log_base_path=None,  # Base path for log files (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod)
+            log_base_path=None,  # Base path for log files (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod\\logs)
             discord_channel_id=None,
-            command_file_path=r"C:\GameServers\StarWarsJKA\GameData\commands.txt"
+            rcon_host="127.0.0.1",
+            rcon_port=29070,
+            rcon_password=None
         )
+        self.executor = ThreadPoolExecutor(max_workers=2)
         self.bot.loop.create_task(self.monitor_log())
         print("JKChatBridge cog initialized.")
 
@@ -27,7 +32,7 @@ class JKChatBridge(commands.Cog):
 
     @jkbridge.command()
     async def setlogbasepath(self, ctx, path: str):
-        """Set the base path for Lugormod log files (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod)."""
+        """Set the base path for Lugormod log files (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod\\logs)."""
         await self.config.log_base_path.set(path)
         print(f"Log base path set to: {path}")
         await ctx.send(f"Log base path set to: {path}")
@@ -40,18 +45,34 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Discord channel set to: {channel.name}")
 
     @jkbridge.command()
-    async def setcommandfile(self, ctx, path: str):
-        """Set the path to the commands.txt file (use double backslashes on Windows)."""
-        await self.config.command_file_path.set(path)
-        print(f"Command file path set to: {path}")
-        await ctx.send(f"Command file path set to: {path}")
+    async def setrconhost(self, ctx, host: str):
+        """Set the RCON host (IP or address)."""
+        await self.config.rcon_host.set(host)
+        print(f"RCON host set to: {host}")
+        await ctx.send(f"RCON host set to: {host}")
+
+    @jkbridge.command()
+    async def setrconport(self, ctx, port: int):
+        """Set the RCON port."""
+        await self.config.rcon_port.set(port)
+        print(f"RCON port set to: {port}")
+        await ctx.send(f"RCON port set to: {port}")
+
+    @jkbridge.command()
+    async def setrconpassword(self, ctx, password: str):
+        """Set the RCON password."""
+        await self.config.rcon_password.set(password)
+        print("RCON password set.")
+        await ctx.send("RCON password set.")
 
     @jkbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the JK chat bridge."""
         log_base_path = await self.config.log_base_path()
         discord_channel_id = await self.config.discord_channel_id()
-        command_file_path = await self.config.command_file_path()
+        rcon_host = await self.config.rcon_host()
+        rcon_port = await self.config.rcon_port()
+        rcon_password = await self.config.rcon_password()
         channel_name = "Not set"
         if discord_channel_id:
             channel = self.bot.get_channel(discord_channel_id)
@@ -60,39 +81,52 @@ class JKChatBridge(commands.Cog):
             f"**Current Settings:**\n"
             f"Log Base Path: {log_base_path or 'Not set'}\n"
             f"Discord Channel: {channel_name}\n"
-            f"Command File Path: {command_file_path or 'Not set'}\n"
+            f"RCON Host: {rcon_host or 'Not set'}\n"
+            f"RCON Port: {rcon_port or 'Not set'}\n"
+            f"RCON Password: {'Set' if rcon_password else 'Not set'}\n"
         )
         print("Showing settings:", settings_message)
         await ctx.send(settings_message)
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        """Handle messages from Discord and write them to commands.txt."""
+        """Handle messages from Discord and send them to the game server via RCON."""
         channel_id = await self.config.discord_channel_id()
-        command_file_path = await self.config.command_file_path()
-
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
-
         discord_username = message.author.name
         server_command = f"say [Discord] {discord_username}: {message.content}"
-        print(f"Received message from {discord_username}: {message.content}")
-        print(f"Formatted command: {server_command}")
-
-        if not command_file_path:
-            print("Error: Command file path not set.")
-            await message.channel.send("Command file path not set. Use [p]jk setcommandfile.")
+        rcon_host = await self.config.rcon_host()
+        rcon_port = await self.config.rcon_port()
+        rcon_password = await self.config.rcon_password()
+        if not all([rcon_host, rcon_port, rcon_password]):
+            print("RCON settings not fully configured.")
+            await message.channel.send("RCON settings not fully configured. Use [p]jk setrconhost, [p]jk setrconport, and [p]jk setrconpassword.")
             return
-
         try:
-            print(f"Writing command to {command_file_path}: {server_command}")
-            async with aiofiles.open(command_file_path, mode='a') as f:
-                await f.write(server_command + "\n")
-            print(f"Successfully wrote command to {command_file_path}")
+            print(f"Sending RCON command: {server_command}")
+            await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, rcon_host, rcon_port, rcon_password)
+            print("RCON command sent successfully.")
             await message.channel.send("Message sent to game server.")
         except Exception as e:
-            print(f"Error writing to {command_file_path}: {e}")
+            print(f"Error sending RCON command: {e}")
             await message.channel.send(f"Failed to send to game: {e}")
+
+    def send_rcon_command(self, command, host, port, password):
+        """Send an RCON command to the game server."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(5)
+        packet = b'\xff\xff\xff\xffrcon ' + password.encode() + b' ' + command.encode()
+        try:
+            sock.sendto(packet, (host, port))
+            response, _ = sock.recvfrom(4096)
+            print("RCON response:", response.decode(errors='replace'))
+        except socket.timeout:
+            raise Exception("RCON command timed out.")
+        except Exception as e:
+            raise Exception(f"Error sending RCON command: {e}")
+        finally:
+            sock.close()
 
     async def monitor_log(self):
         """Monitor the latest Lugormod log file and send messages to Discord."""
@@ -104,7 +138,6 @@ class JKChatBridge(commands.Cog):
                 await asyncio.sleep(5)
                 continue
 
-            # Generate the current log file name based on today's date
             current_date = datetime.now().strftime("%m-%d-%Y")  # e.g., "03-11-2025"
             log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
             print(f"Attempting to monitor log file: {log_file_path}")
@@ -128,7 +161,7 @@ class JKChatBridge(commands.Cog):
                                 await channel.send(discord_message)
             except FileNotFoundError:
                 print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
-                await asyncio.sleep(5)  # Wait and retry
+                await asyncio.sleep(5)
             except Exception as e:
                 print(f"Log monitoring error: {e}")
                 await asyncio.sleep(5)
@@ -143,4 +176,5 @@ class JKChatBridge(commands.Cog):
 
     def cog_unload(self):
         """Clean up when the cog is unloaded."""
+        self.executor.shutdown()
         print("JKChatBridge cog unloaded.")
