@@ -21,8 +21,9 @@ class JKChatBridge(commands.Cog):
             rcon_password=None
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
-        # Start the monitoring task and store it
-        self.monitor_task = self.bot.loop.create_task(self.monitor_log())
+        self.monitoring = False  # Control flag for monitoring
+        self.monitor_task = None
+        self.start_monitoring()
         print("JKChatBridge cog initialized.")
 
     @commands.group(name="jkbridge", aliases=["jk"])
@@ -131,8 +132,10 @@ class JKChatBridge(commands.Cog):
 
     async def monitor_log(self):
         """Monitor the latest Lugormod log file and send messages to Discord."""
-        try:
-            while True:
+        self.monitoring = True
+        print("Log monitoring task started.")
+        while self.monitoring:
+            try:
                 log_base_path = await self.config.log_base_path()
                 channel_id = await self.config.discord_channel_id()
                 if not log_base_path or not channel_id:
@@ -150,32 +153,34 @@ class JKChatBridge(commands.Cog):
                 log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
                 print(f"Attempting to monitor log file: {log_file_path}")
 
-                try:
-                    async with aiofiles.open(log_file_path, mode='r') as f:
-                        await f.seek(0, 2)  # Start at end of file
-                        print(f"Monitoring log file: {log_file_path}")
-                        while True:
-                            line = await f.readline()
-                            if not line:
-                                await asyncio.sleep(0.1)
-                                continue
-                            if "say:" in line and "tell:" not in line and "[Discord]" not in line:
-                                player_name, message = self.parse_chat_line(line)
-                                discord_message = f"[In-Game] {player_name}: {message}"
-                                print(f"Parsed log line - Player: {player_name}, Message: {message}")
-                                print(f"Sending to Discord: {discord_message}")
-                                channel = self.bot.get_channel(channel_id)
-                                if channel:
-                                    await channel.send(discord_message)
-                except FileNotFoundError:
-                    print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
-                    await asyncio.sleep(5)
-                except Exception as e:
-                    print(f"Log monitoring error: {e}")
-                    await asyncio.sleep(5)
-        except asyncio.CancelledError:
-            print("Log monitoring task canceled.")
-            raise
+                async with aiofiles.open(log_file_path, mode='r') as f:
+                    await f.seek(0, 2)  # Start at end of file
+                    print(f"Monitoring log file: {log_file_path}")
+                    while self.monitoring:
+                        line = await f.readline()
+                        if not line:
+                            await asyncio.sleep(0.1)
+                            continue
+                        if "say:" in line and "tell:" not in line and "[Discord]" not in line:
+                            player_name, message = self.parse_chat_line(line)
+                            discord_message = f"[In-Game] {player_name}: {message}"
+                            print(f"Parsed log line - Player: {player_name}, Message: {message}")
+                            print(f"Sending to Discord: {discord_message}")
+                            channel = self.bot.get_channel(channel_id)
+                            if channel:
+                                await channel.send(discord_message)
+            except FileNotFoundError:
+                print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
+                await asyncio.sleep(5)
+            except Exception as e:
+                print(f"Log monitoring error: {e}")
+                await asyncio.sleep(5)
+        print("Log monitoring task stopped.")
+
+    def start_monitoring(self):
+        if not self.monitor_task or self.monitor_task.done():
+            self.monitor_task = self.bot.loop.create_task(self.monitor_log())
+            print(f"Monitor task created: {id(self.monitor_task)}")
 
     def parse_chat_line(self, line):
         """Parse a chat line from the log into player name and message."""
@@ -185,8 +190,16 @@ class JKChatBridge(commands.Cog):
         print(f"Parsed log line - Player: {player_name}, Message: {message}")
         return player_name, message
 
-    def cog_unload(self):
+    async def cog_unload(self):
         """Clean up when the cog is unloaded."""
-        self.monitor_task.cancel()  # Cancel the monitoring task
-        self.executor.shutdown(wait=False)  # Shut down the thread pool
+        self.monitoring = False  # Signal the loop to stop
+        if self.monitor_task and not self.monitor_task.done():
+            print(f"Canceling task: {id(self.monitor_task)}")
+            self.monitor_task.cancel()
+            try:
+                await asyncio.sleep(0)  # Yield control to allow cancellation
+                await self.monitor_task  # Wait for the task to finish
+            except asyncio.CancelledError:
+                pass
+        self.executor.shutdown(wait=False)
         print("JKChatBridge cog unloaded.")
