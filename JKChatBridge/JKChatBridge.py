@@ -56,6 +56,35 @@ class JKChatBridge(commands.Cog):
         await self.config.discord_channel_id.set(channel.id)
         await ctx.send(f"Discord channel set to: {channel.name}")
 
+    @jkbridge.command()
+    async def showsettings(self, ctx):
+        """Show the current settings for the JK chat bridge."""
+        # Retrieve the settings from Config
+        server_host = await self.config.server_host()
+        server_port = await self.config.server_port()
+        rcon_password = await self.config.rcon_password()
+        log_file_path = await self.config.log_file_path()
+        discord_channel_id = await self.config.discord_channel_id()
+
+        # Get the channel name if an ID is set
+        channel_name = "Not set"
+        if discord_channel_id:
+            channel = self.bot.get_channel(discord_channel_id)
+            channel_name = channel.name if channel else "Unknown channel"
+
+        # Format the settings into a readable message
+        settings_message = (
+            f"**Current Settings:**\n"
+            f"Server Host: {server_host or 'Not set'}\n"
+            f"Server Port: {server_port or 'Not set'}\n"
+            f"RCON Password: {'Set' if rcon_password else 'Not set'}\n"
+            f"Log File Path: {log_file_path or 'Not set'}\n"
+            f"Discord Channel: {channel_name}\n"
+        )
+
+        # Send the message to Discord
+        await ctx.send(settings_message)
+
     # Relay Discord messages to game
     @commands.Cog.listener()
     async def on_message(self, message):
