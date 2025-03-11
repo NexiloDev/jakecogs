@@ -209,16 +209,33 @@ class JKChatBridge(commands.Cog):
                         if not line:
                             await asyncio.sleep(0.1)
                             continue
+                        line = line.strip()
+                        # Chat messages
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
                                 discord_message = f"{custom_emoji} **{player_name}**: {message}"
                                 print(f"Sending to Discord channel {channel_id}: {discord_message}")
-                                channel = self.bot.get_channel(channel_id)
                                 if channel:
                                     await channel.send(discord_message)
                                 else:
                                     print(f"Channel {channel_id} not found!")
+                        # Player joins
+                        elif "entered the game" in line:
+                            player_name = line.split("entered the game")[0].strip()
+                            player_name = self.remove_color_codes(player_name)
+                            join_message = f"{custom_emoji} **{player_name}** has joined the game!"
+                            print(f"Sending to Discord channel {channel_id}: {join_message}")
+                            if channel:
+                                await channel.send(join_message)
+                        # Player disconnects
+                        elif "disconnected" in line:
+                            player_name = line.split("disconnected")[0].strip()
+                            player_name = self.remove_color_codes(player_name)
+                            leave_message = f"{custom_emoji} **{player_name}** has disconnected."
+                            print(f"Sending to Discord channel {channel_id}: {leave_message}")
+                            if channel:
+                                await channel.send(leave_message)
             except FileNotFoundError:
                 print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
                 await asyncio.sleep(5)
