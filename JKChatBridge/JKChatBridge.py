@@ -122,7 +122,7 @@ class JKChatBridge(commands.Cog):
         self.start_monitoring()
         await ctx.send("Log monitoring task reloaded.")
 
-    @jkbridge.command(name="status")  # Renamed to 'status', no owner restriction
+    @jkbridge.command(name="status")
     async def status(self, ctx):
         """Display detailed server status with emojis. Accessible to all users."""
         rcon_host = await self.config.rcon_host()
@@ -144,35 +144,28 @@ class JKChatBridge(commands.Cog):
             mod_name = "Unknown"
             map_name = "Unknown"
             player_count = "0 humans, 0 bots"
-            uptime = "Unknown"
             players = []
 
             for line in status_lines:
                 if "hostname:" in line:
-                    server_name = self.remove_color_codes(line.split("hostname:")[1].strip().replace("Ç", ""))
+                    server_name = self.remove_color_codes(line.split("hostname:")[1].strip()).replace("Ç", "").encode().decode('ascii', 'ignore')
                 elif "game    :" in line:
                     mod_name = line.split("game    :")[1].strip()
                 elif "map     :" in line:
                     map_name = line.split("map     :")[1].split()[0].strip()
                 elif "players :" in line:
                     player_count = line.split("players :")[1].strip()
-                elif "uptime  :" in line:
-                    uptime = line.split("uptime  :")[1].strip()
                 elif re.match(r"^\s*\d+\s+\d+\s+\d+\s+.*$", line):
                     parts = re.split(r"\s+", line.strip(), maxsplit=4)
                     if len(parts) >= 4:
+                        client_id = parts[0]
                         player_name = self.remove_color_codes(parts[3].strip())
-                        players.append(player_name)
+                        players.append((client_id, player_name))
 
-            # Format player list in two columns
+            # Format player list with ID and name
             player_list = "No players online"
             if players:
-                half = (len(players) + 1) // 2  # Split into roughly equal halves
-                left_column = players[:half]
-                right_column = players[half:]
-                max_len = max(len(name) for name in left_column + right_column) if players else 0
-                player_lines = [f"{left_column[i]:<{max_len}}  {right_column[i] if i < len(right_column) else ''}" 
-                                for i in range(half)]
+                player_lines = [f"{client_id:<3} {name}" for client_id, name in players]
                 player_list = "```\n" + "\n".join(player_lines) + "\n```"
 
             # Create fancy embed
@@ -183,8 +176,7 @@ class JKChatBridge(commands.Cog):
             )
             embed.add_field(name="👥 Players", value=f"{player_count}", inline=True)
             embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
-            embed.add_field(name="🎮 Mod", value=f"{mod_name}", inline=True)  # Version removed
-            embed.add_field(name="⏰ Uptime", value=f"{uptime}", inline=True)
+            embed.add_field(name="🎮 Mod", value=f"{mod_name}", inline=True)
             embed.add_field(name="📋 Online Players", value=player_list, inline=False)
             embed.set_footer(text="✨ Updated on March 11, 2025 ✨", icon_url="https://cdn.discordapp.com/emojis/1219115870928900146.png")
 
