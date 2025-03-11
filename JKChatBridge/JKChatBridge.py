@@ -3,15 +3,16 @@ import discord
 from redbot.core import Config, commands
 import aiofiles
 import os
+from datetime import datetime
 
 class JKChatBridge(commands.Cog):
-    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via commands.txt."""
+    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via commands.txt, with dynamic log file support for Lugormod."""
 
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.config.register_global(
-            log_file_path=None,
+            log_base_path=None,  # Base path for log files (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod)
             discord_channel_id=None,
             command_file_path=r"C:\GameServers\StarWarsJKA\GameData\commands.txt"
         )
@@ -25,11 +26,11 @@ class JKChatBridge(commands.Cog):
         pass
 
     @jkbridge.command()
-    async def setlogfile(self, ctx, path: str):
-        """Set the path to the game server log file (use double backslashes on Windows)."""
-        await self.config.log_file_path.set(path)
-        print(f"Log file path set to: {path}")
-        await ctx.send(f"Log file path set to: {path}")
+    async def setlogbasepath(self, ctx, path: str):
+        """Set the base path for Lugormod log files (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod)."""
+        await self.config.log_base_path.set(path)
+        print(f"Log base path set to: {path}")
+        await ctx.send(f"Log base path set to: {path}")
 
     @jkbridge.command()
     async def setchannel(self, ctx, channel: discord.TextChannel):
@@ -48,7 +49,7 @@ class JKChatBridge(commands.Cog):
     @jkbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the JK chat bridge."""
-        log_file_path = await self.config.log_file_path()
+        log_base_path = await self.config.log_base_path()
         discord_channel_id = await self.config.discord_channel_id()
         command_file_path = await self.config.command_file_path()
         channel_name = "Not set"
@@ -57,7 +58,7 @@ class JKChatBridge(commands.Cog):
             channel_name = channel.name if channel else "Unknown channel"
         settings_message = (
             f"**Current Settings:**\n"
-            f"Log File Path: {log_file_path or 'Not set'}\n"
+            f"Log Base Path: {log_base_path or 'Not set'}\n"
             f"Discord Channel: {channel_name}\n"
             f"Command File Path: {command_file_path or 'Not set'}\n"
         )
@@ -70,7 +71,6 @@ class JKChatBridge(commands.Cog):
         channel_id = await self.config.discord_channel_id()
         command_file_path = await self.config.command_file_path()
 
-        # Skip if no channel is set, message isn’t in the right channel, or it’s from a bot
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
 
@@ -85,7 +85,7 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
-            # Append the command to commands.txt
+            print(f"Writing command to {command_file_path}: {server_command}")
             async with aiofiles.open(command_file_path, mode='a') as f:
                 await f.write(server_command + "\n")
             print(f"Successfully wrote command to {command_file_path}")
@@ -95,14 +95,20 @@ class JKChatBridge(commands.Cog):
             await message.channel.send(f"Failed to send to game: {e}")
 
     async def monitor_log(self):
-        """Monitor the game server log file and send messages to Discord."""
+        """Monitor the latest Lugormod log file and send messages to Discord."""
         while True:
-            log_file_path = await self.config.log_file_path()
+            log_base_path = await self.config.log_base_path()
             channel_id = await self.config.discord_channel_id()
-            if not log_file_path or not channel_id:
-                print("Log file path or channel ID not set. Sleeping for 5 seconds.")
+            if not log_base_path or not channel_id:
+                print("Log base path or channel ID not set. Sleeping for 5 seconds.")
                 await asyncio.sleep(5)
                 continue
+
+            # Generate the current log file name based on today's date
+            current_date = datetime.now().strftime("%m-%d-%Y")  # e.g., "03-11-2025"
+            log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
+            print(f"Attempting to monitor log file: {log_file_path}")
+
             try:
                 async with aiofiles.open(log_file_path, mode='r') as f:
                     await f.seek(0, 2)  # Start at end of file
@@ -115,13 +121,14 @@ class JKChatBridge(commands.Cog):
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             discord_message = f"[In-Game] {player_name}: {message}"
+                            print(f"Parsed log line - Player: {player_name}, Message: {message}")
                             print(f"Sending to Discord: {discord_message}")
                             channel = self.bot.get_channel(channel_id)
                             if channel:
                                 await channel.send(discord_message)
             except FileNotFoundError:
-                print(f"Log file not found: {log_file_path}. Sleeping for 5 seconds.")
-                await asyncio.sleep(5)
+                print(f"Log file not found: {log_file_path}. Waiting for file to be created.")
+                await asyncio.sleep(5)  # Wait and retry
             except Exception as e:
                 print(f"Log monitoring error: {e}")
                 await asyncio.sleep(5)
@@ -130,6 +137,10 @@ class JKChatBridge(commands.Cog):
         """Parse a chat line from the log into player name and message."""
         parts = line.split(":", 2)
         player_name = parts[0].strip()
-        message = parts[2].strip()
+        message = parts[2].strip() if len(parts) > 2 else ""
         print(f"Parsed log line - Player: {player_name}, Message: {message}")
         return player_name, message
+
+    def cog_unload(self):
+        """Clean up when the cog is unloaded."""
+        print("JKChatBridge cog unloaded.")
