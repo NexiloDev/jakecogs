@@ -309,13 +309,9 @@ class JKChatBridge(commands.Cog):
         finally:
             sock.close()
 
-    def clean_name(self, text):
-        """Remove color codes and special characters from player names."""
-        # Remove color codes (e.g., ^2)
-        text = re.sub(r'\^\d', '', text)
-        # Remove special characters (e.g., §, ®, Ñ, Ø, etc.), keeping letters, numbers, and basic punctuation
-        text = re.sub(r'[^\w\s\-\[\]=]', '', text)
-        return text.strip()
+    def remove_color_codes(self, text):
+        """Remove Jedi Academy color codes (e.g., ^1, ^7) from text."""
+        return re.sub(r'\^\d', '', text)
 
     async def monitor_log(self):
         """Monitor the latest Lugormod log file and send messages to Discord."""
@@ -392,8 +388,8 @@ class JKChatBridge(commands.Cog):
                             # Parse duel result (e.g., "3-12-2025 2:44 (6:11): duel: ^2§^0ÑØW^2§^0TØ®M^2¹ won a duel against ^7^2=^3[^2C^7u^2M^3]= ^7^5Wacky")
                             parts = line.split("duel:")[1].split("won a duel against")
                             if len(parts) == 2:
-                                winner = self.clean_name(parts[0].strip())
-                                loser = self.clean_name(parts[1].strip())
+                                winner = self.remove_color_codes(parts[0].strip())
+                                loser = self.remove_color_codes(parts[1].strip())
                                 duel_message = f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!"
                                 print(f"Sending to Discord channel {channel_id}: {duel_message}")
                                 if channel:
