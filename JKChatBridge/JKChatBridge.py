@@ -124,7 +124,7 @@ class JKChatBridge(commands.Cog):
             return
         discord_username = message.author.display_name
         message_content = self.replace_emojis_with_names(message.content)
-        server_command = f"say ^5{{Discord}} ^7{discord_username}^2: {message_content}"
+        server_command = f"say ^5{{D}}^7{discord_username}^2: {message_content}"
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
