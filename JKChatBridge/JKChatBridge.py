@@ -200,7 +200,8 @@ class JKChatBridge(commands.Cog):
         
         # Replace typographic punctuation with ASCII equivalents in username
         discord_username = discord_username.replace("’", "'").replace("‘", "'")  # Apostrophes
-        discord_username = discord_username.replace("“", "\"").replace("”", "\"")  # Quotes
+        discord_username = discord_username.replace("“", "\"").replace("”", "\"")  # Curly quotes
+        discord_username = discord_username.replace("«", "\"").replace("»", "\"")  # Angle quotes
         discord_username = discord_username.replace("–", "-").replace("—", "-")  # Dashes
         discord_username = discord_username.replace("…", "...")  # Ellipsis
         
@@ -208,7 +209,8 @@ class JKChatBridge(commands.Cog):
 
         # Replace typographic punctuation with ASCII equivalents in message
         message_content = message_content.replace("’", "'").replace("‘", "'")  # Apostrophes
-        message_content = message_content.replace("“", "\"").replace("”", "\"")  # Quotes
+        message_content = message_content.replace("“", "\"").replace("”", "\"")  # Curly quotes
+        message_content = message_content.replace("«", "\"").replace("»", "\"")  # Angle quotes
         message_content = message_content.replace("–", "-").replace("—", "-")  # Dashes
         message_content = message_content.replace("…", "...")  # Ellipsis
 
