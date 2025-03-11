@@ -2,22 +2,18 @@ import asyncio
 import discord
 from redbot.core import Config, commands
 import aiofiles
-import win32com.client
-import time
-import win32gui
+import os
 
 class JKChatBridge(commands.Cog):
-    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via server console (RCON settings optional for future use)."""
+    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via a command file."""
 
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.config.register_global(
-            server_host=None,  # Optional: IP for potential RCON use
-            server_port=None,  # Optional: Port for potential RCON use
-            rcon_password=None,  # Optional: Password for potential RCON use
             log_file_path=None,
-            discord_channel_id=None
+            discord_channel_id=None,
+            command_file_path=None  # Path to the command file
         )
         self.bot.loop.create_task(self.monitor_log())
 
@@ -25,26 +21,8 @@ class JKChatBridge(commands.Cog):
     @commands.group(name="jkbridge", aliases=["jk"])
     @commands.is_owner()
     async def jkbridge(self, ctx):
-        """Configure the JK chat bridge (also available as 'jk'). Use these commands to set up the game server connection."""
+        """Configure the JK chat bridge (also available as 'jk')."""
         pass
-
-    @jkbridge.command()
-    async def setserverhost(self, ctx, host: str):
-        """Set the server host (IP or address, optional for future RCON use)."""
-        await self.config.server_host.set(host)
-        await ctx.send(f"Server host set to: {host}")
-
-    @jkbridge.command()
-    async def setserverport(self, ctx, port: int):
-        """Set the server port (optional for future RCON use)."""
-        await self.config.server_port.set(port)
-        await ctx.send(f"Server port set to: {port}")
-
-    @jkbridge.command()
-    async def setrconpassword(self, ctx, password: str):
-        """Set the RCON password (optional for future RCON use)."""
-        await self.config.rcon_password.set(password)
-        await ctx.send("RCON password set.")
 
     @jkbridge.command()
     async def setlogfile(self, ctx, path: str):
@@ -59,51 +37,28 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Discord channel set to: {channel.name}")
 
     @jkbridge.command()
+    async def setcommandfile(self, ctx, path: str):
+        """Set the path to the command file (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\commands.txt)."""
+        await self.config.command_file_path.set(path)
+        await ctx.send(f"Command file path set to: {path}")
+
+    @jkbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the JK chat bridge."""
-        server_host = await self.config.server_host()
-        server_port = await self.config.server_port()
-        rcon_password = await self.config.rcon_password()
         log_file_path = await self.config.log_file_path()
         discord_channel_id = await self.config.discord_channel_id()
+        command_file_path = await self.config.command_file_path()
         channel_name = "Not set"
         if discord_channel_id:
             channel = self.bot.get_channel(discord_channel_id)
             channel_name = channel.name if channel else "Unknown channel"
         settings_message = (
             f"**Current Settings:**\n"
-            f"Server Host: {server_host or 'Not set'} (optional for RCON)\n"
-            f"Server Port: {server_port or 'Not set'} (optional for RCON)\n"
-            f"RCON Password: {'Set' if rcon_password else 'Not set'} (optional for RCON)\n"
             f"Log File Path: {log_file_path or 'Not set'}\n"
             f"Discord Channel: {channel_name}\n"
+            f"Command File Path: {command_file_path or 'Not set'}\n"
         )
         await ctx.send(settings_message)
-
-    def find_server_window(self):
-        """Find the first 'OpenJK (MP) Dedicated Server Console' window."""
-        def enum_windows_callback(hwnd, windows):
-            if win32gui.IsWindowVisible(hwnd):
-                window_title = win32gui.GetWindowText(hwnd)
-                if "OpenJK (MP) Dedicated Server Console" in window_title:
-                    windows.append(hwnd)
-        windows = []
-        win32gui.EnumWindows(enum_windows_callback, windows)
-        return windows[0] if windows else None  # Return the handle of the first matching window
-
-    def send_to_console(self, command):
-        """Send a command to the server console window."""
-        try:
-            hwnd = self.find_server_window()
-            if hwnd is None:
-                raise Exception("Could not find any 'OpenJK (MP) Dedicated Server Console' window.")
-            shell = win32com.client.Dispatch("WScript.Shell")
-            if not shell.AppActivate(hwnd):
-                raise Exception("Could not activate the server console window.")
-            shell.SendKeys(command + "{ENTER}")
-            time.sleep(0.5)  # Small delay to ensure the command is sent
-        except Exception as e:
-            raise Exception(f"Failed to send command to console: {e}")
 
     # Relay Discord messages to game
     @commands.Cog.listener()
@@ -113,13 +68,18 @@ class JKChatBridge(commands.Cog):
             return
         discord_username = message.author.name
         server_command = f"say [Discord] {discord_username}: {message.content}"
+        command_file_path = await self.config.command_file_path()
+        if not command_file_path:
+            await message.channel.send("Command file path not set. Use [p]jk setcommandfile.")
+            return
         try:
-            print(f"Sending command to server console: {server_command}")
-            self.send_to_console(server_command)
-            print("Command sent successfully")
+            print(f"Writing command to file: {server_command}")
+            with open(command_file_path, "a") as f:
+                f.write(server_command + "\n")
+            print("Command written successfully")
             await message.channel.send("Message sent to game server.")
         except Exception as e:
-            print(f"Error sending to server console: {e}")
+            print(f"Error writing to command file: {e}")
             await message.channel.send(f"Failed to send to game: {e}")
 
     # Monitor game log for public messages
