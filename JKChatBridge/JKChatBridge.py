@@ -172,22 +172,50 @@ class JKChatBridge(commands.Cog):
             await message.channel.send(f"Failed to send to game: {e}")
 
     def replace_emojis_with_names(self, text):
-        """Replace Discord emojis with their names, including standard Unicode emojis."""
+        """Replace Discord emojis with common text emoticons or names for Jedi Academy."""
+        # Custom Discord emojis
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
+        # Common Unicode emojis mapped to text emoticons
         emoji_map = {
-            "😄": ":smile:",
-            "😂": ":joy:",
-            "😊": ":blush:",
-            "😉": ":wink:",
-            "😍": ":heart_eyes:",
-            "😢": ":cry:",
-            "😡": ":angry:",
-            "👍": ":thumbsup:",
-            "👎": ":thumbsdown:",
+            "😊": ":)",    # Smiling face
+            "😄": ":D",    # Big smile
+            "😂": "XD",    # Laughing
+            "😉": ";)",    # Wink
+            "😛": ":P",    # Tongue out
+            "😢": ":(",    # Sad
+            "😡": ">:(",   # Angry
+            "👍": ":+1:",  # Thumbs up
+            "👎": ":-1:",  # Thumbs down
+            "❤️": "<3",    # Heart
+            "💖": "<3",    # Sparkling heart
+            "😍": ":*",    # Heart eyes / kiss
+            "🙂": ":)",    # Slight smile
+            "😣": ":S",    # Confused / pensive
+            "😜": ":P"     # Winking tongue out
         }
-        for unicode_emoji, name in emoji_map.items():
-            text = text.replace(unicode_emoji, name)
+        for unicode_emoji, text_emote in emoji_map.items():
+            text = text.replace(unicode_emoji, text_emote)
+        return text
+
+    def replace_text_emotes_with_emojis(self, text):
+        """Convert common text emoticons from Jedi Academy to Discord emojis."""
+        text_emote_map = {
+            ":)": "😊",
+            ":D": "😄",
+            "XD": "😂",
+            ";)": "😉",
+            ":P": "😛",
+            ":(": "😢",
+            ">:(": "😡",
+            ":+1:": "👍",
+            ":-1:": "👎",
+            "<3": "❤️",
+            ":*": "😍",
+            ":S": "😣"
+        }
+        for text_emote, emoji in text_emote_map.items():
+            text = text.replace(text_emote, emoji)
         return text
 
     def send_rcon_command(self, command, host, port, password):
@@ -244,6 +272,8 @@ class JKChatBridge(commands.Cog):
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
+                                # Convert text emotes to Discord emojis
+                                message = self.replace_text_emotes_with_emojis(message)
                                 discord_message = f"{custom_emoji} **{player_name}**: {message}"
                                 print(f"Sending to Discord channel {channel_id}: {discord_message}")
                                 if channel:
