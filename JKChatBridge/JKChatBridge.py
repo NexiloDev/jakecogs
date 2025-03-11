@@ -2,18 +2,20 @@ import asyncio
 import discord
 from redbot.core import Config, commands
 import aiofiles
-from asyncrcon import AsyncRCON, AuthenticationException
+import win32com.client
+import time
+import win32gui
 
 class JKChatBridge(commands.Cog):
-    """Bridges public chat between Jedi Knight: Jedi Academy and Discord."""
+    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via server console (RCON settings optional for future use)."""
 
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.config.register_global(
-            server_host=None,
-            server_port=None,
-            rcon_password=None,
+            server_host=None,  # Optional: IP for potential RCON use
+            server_port=None,  # Optional: Port for potential RCON use
+            rcon_password=None,  # Optional: Password for potential RCON use
             log_file_path=None,
             discord_channel_id=None
         )
@@ -28,19 +30,19 @@ class JKChatBridge(commands.Cog):
 
     @jkbridge.command()
     async def setserverhost(self, ctx, host: str):
-        """Set the server host (IP or address)."""
+        """Set the server host (IP or address, optional for future RCON use)."""
         await self.config.server_host.set(host)
         await ctx.send(f"Server host set to: {host}")
 
     @jkbridge.command()
     async def setserverport(self, ctx, port: int):
-        """Set the server port."""
+        """Set the server port (optional for future RCON use)."""
         await self.config.server_port.set(port)
         await ctx.send(f"Server port set to: {port}")
 
     @jkbridge.command()
     async def setrconpassword(self, ctx, password: str):
-        """Set the RCON password."""
+        """Set the RCON password (optional for future RCON use)."""
         await self.config.rcon_password.set(password)
         await ctx.send("RCON password set.")
 
@@ -59,31 +61,49 @@ class JKChatBridge(commands.Cog):
     @jkbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the JK chat bridge."""
-        # Retrieve the settings from Config
         server_host = await self.config.server_host()
         server_port = await self.config.server_port()
         rcon_password = await self.config.rcon_password()
         log_file_path = await self.config.log_file_path()
         discord_channel_id = await self.config.discord_channel_id()
-
-        # Get the channel name if an ID is set
         channel_name = "Not set"
         if discord_channel_id:
             channel = self.bot.get_channel(discord_channel_id)
             channel_name = channel.name if channel else "Unknown channel"
-
-        # Format the settings into a readable message
         settings_message = (
             f"**Current Settings:**\n"
-            f"Server Host: {server_host or 'Not set'}\n"
-            f"Server Port: {server_port or 'Not set'}\n"
-            f"RCON Password: {'Set' if rcon_password else 'Not set'}\n"
+            f"Server Host: {server_host or 'Not set'} (optional for RCON)\n"
+            f"Server Port: {server_port or 'Not set'} (optional for RCON)\n"
+            f"RCON Password: {'Set' if rcon_password else 'Not set'} (optional for RCON)\n"
             f"Log File Path: {log_file_path or 'Not set'}\n"
             f"Discord Channel: {channel_name}\n"
         )
-
-        # Send the message to Discord
         await ctx.send(settings_message)
+
+    def find_server_window(self):
+        """Find the first 'OpenJK (MP) Dedicated Server Console' window."""
+        def enum_windows_callback(hwnd, windows):
+            if win32gui.IsWindowVisible(hwnd):
+                window_title = win32gui.GetWindowText(hwnd)
+                if "OpenJK (MP) Dedicated Server Console" in window_title:
+                    windows.append(hwnd)
+        windows = []
+        win32gui.EnumWindows(enum_windows_callback, windows)
+        return windows[0] if windows else None  # Return the handle of the first matching window
+
+    def send_to_console(self, command):
+        """Send a command to the server console window."""
+        try:
+            hwnd = self.find_server_window()
+            if hwnd is None:
+                raise Exception("Could not find any 'OpenJK (MP) Dedicated Server Console' window.")
+            shell = win32com.client.Dispatch("WScript.Shell")
+            if not shell.AppActivate(hwnd):
+                raise Exception("Could not activate the server console window.")
+            shell.SendKeys(command + "{ENTER}")
+            time.sleep(0.5)  # Small delay to ensure the command is sent
+        except Exception as e:
+            raise Exception(f"Failed to send command to console: {e}")
 
     # Relay Discord messages to game
     @commands.Cog.listener()
@@ -91,31 +111,15 @@ class JKChatBridge(commands.Cog):
         channel_id = await self.config.discord_channel_id()
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
-        server_host = await self.config.server_host()
-        server_port = await self.config.server_port()
-        rcon_password = await self.config.rcon_password()
-        if not all([server_host, server_port, rcon_password]):
-            await message.channel.send("Server settings incomplete. Use `[p]jkbridge` or `[p]jk` to configure.")
-            return
-        # Combine host and port into the address format expected by AsyncRCON
-        rcon_address = f"{server_host}:{server_port}"
         discord_username = message.author.name
-        rcon_command = f"say [Discord] {discord_username}: {message.content}"
+        server_command = f"say [Discord] {discord_username}: {message.content}"
         try:
-            print(f"Attempting connection to {rcon_address} with raw password: {rcon_password}")
-            rcon = AsyncRCON(rcon_address, rcon_password)
-            print(f"Opening connection to {rcon_address}")
-            await rcon.open_connection()
-            print(f"Sending command: {rcon_command}")
-            response = await rcon.command(rcon_command)
-            print(f"Closing connection to {rcon_address}")
-            await rcon.close()
-            print(f"RCON response: {response}")
-        except AuthenticationException:
-            print("Authentication failed during RCON connection.")
-            await message.channel.send("Authentication failed. Check your RCON password.")
+            print(f"Sending command to server console: {server_command}")
+            self.send_to_console(server_command)
+            print("Command sent successfully")
+            await message.channel.send("Message sent to game server.")
         except Exception as e:
-            print(f"Connection error details: {e}")
+            print(f"Error sending to server console: {e}")
             await message.channel.send(f"Failed to send to game: {e}")
 
     # Monitor game log for public messages
