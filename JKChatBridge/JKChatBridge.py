@@ -15,15 +15,15 @@ class JKChatBridge(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.config.register_global(
-            log_base_path=None,  # Base path for log files (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod\\logs)
+            log_base_path=None,
             discord_channel_id=None,
             rcon_host="127.0.0.1",
             rcon_port=29070,
             rcon_password=None,
-            custom_emoji="<:jk:1219115870928900146>"  # Updated with proper emoji reference
+            custom_emoji="<:jk:1219115870928900146>"
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
-        self.monitoring = False  # Control flag for monitoring
+        self.monitoring = False
         self.monitor_task = None
         self.start_monitoring()
         print("JKChatBridge cog initialized.")
@@ -46,7 +46,8 @@ class JKChatBridge(commands.Cog):
         """Set the Discord channel for the chat bridge."""
         await self.config.discord_channel_id.set(channel.id)
         print(f"Discord channel set to: {channel.name} (ID: {channel.id})")
-        await ctx.send(f"Discord channel set to: {channel.name}")
+        await ctx.send(f"Discord channel set to: {channel.name} (ID: {channel.id})")
+        print(f"Debug: Stored channel ID in config: {await self.config.discord_channel_id()}")
 
     @jkbridge.command()
     async def setrconhost(self, ctx, host: str):
@@ -92,7 +93,7 @@ class JKChatBridge(commands.Cog):
         settings_message = (
             f"**Current Settings:**\n"
             f"Log Base Path: {log_base_path or 'Not set'}\n"
-            f"Discord Channel: {channel_name}\n"
+            f"Discord Channel: {channel_name} (ID: {discord_channel_id or 'Not set'})\n"
             f"RCON Host: {rcon_host or 'Not set'}\n"
             f"RCON Port: {rcon_port or 'Not set'}\n"
             f"RCON Password: {'Set' if rcon_password else 'Not set'}\n"
@@ -123,7 +124,6 @@ class JKChatBridge(commands.Cog):
             return
         discord_username = message.author.display_name
         message_content = self.replace_emojis_with_names(message.content)
-        # Updated format: ^5{Discord} ^7username^2
         server_command = f"say ^5{{Discord}} ^7{discord_username}^2: {message_content}"
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
@@ -142,10 +142,8 @@ class JKChatBridge(commands.Cog):
 
     def replace_emojis_with_names(self, text):
         """Replace Discord emojis with their names, including standard Unicode emojis."""
-        # First handle custom emojis
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
-        # Then handle standard Unicode emojis
         emoji_map = {
             "😄": ":smile:",
             "😂": ":joy:",
@@ -156,7 +154,6 @@ class JKChatBridge(commands.Cog):
             "😡": ":angry:",
             "👍": ":thumbsup:",
             "👎": ":thumbsdown:",
-            # Add more common emojis as needed
         }
         for unicode_emoji, name in emoji_map.items():
             text = text.replace(unicode_emoji, name)
@@ -192,11 +189,9 @@ class JKChatBridge(commands.Cog):
                     await asyncio.sleep(5)
                     continue
 
-                # Add debug logging to verify channel ID
                 channel = self.bot.get_channel(channel_id)
                 print(f"Using channel ID: {channel_id}, Channel name: {channel.name if channel else 'Not found'}")
 
-                # Get the current date without leading zeros
                 now = datetime.now()
                 month = str(now.month)
                 day = str(now.day)
@@ -207,7 +202,7 @@ class JKChatBridge(commands.Cog):
                 print(f"Attempting to monitor log file: {log_file_path}")
 
                 async with aiofiles.open(log_file_path, mode='r') as f:
-                    await f.seek(0, 2)  # Start at end of file
+                    await f.seek(0, 2)
                     print(f"Monitoring log file: {log_file_path}")
                     while self.monitoring:
                         line = await f.readline()
@@ -219,7 +214,7 @@ class JKChatBridge(commands.Cog):
                             if player_name and message:
                                 discord_message = f"{custom_emoji} **{player_name}**: {message}"
                                 print(f"Sending to Discord channel {channel_id}: {discord_message}")
-                                channel = self.bot.get_channel(channel_id)  # Refresh channel object
+                                channel = self.bot.get_channel(channel_id)
                                 if channel:
                                     await channel.send(discord_message)
                                 else:
@@ -245,12 +240,11 @@ class JKChatBridge(commands.Cog):
         """Parse a chat line from the log into player name and message."""
         say_index = line.find("say: ")
         if say_index != -1:
-            chat_part = line[say_index + 5:]  # Skip past "say: "
+            chat_part = line[say_index + 5:]
             colon_index = chat_part.find(": ")
             if colon_index != -1:
                 player_name = chat_part[:colon_index].strip()
                 message = chat_part[colon_index + 2:].strip()
-                # Remove color codes from both
                 player_name = self.remove_color_codes(player_name)
                 message = self.remove_color_codes(message)
                 return player_name, message
@@ -258,13 +252,13 @@ class JKChatBridge(commands.Cog):
 
     async def cog_unload(self):
         """Clean up when the cog is unloaded."""
-        self.monitoring = False  # Signal the loop to stop
+        self.monitoring = False
         if self.monitor_task and not self.monitor_task.done():
             print(f"Canceling task: {id(self.monitor_task)}")
             self.monitor_task.cancel()
             try:
-                await asyncio.sleep(0)  # Yield control to allow cancellation
-                await self.monitor_task  # Wait for the task to finish
+                await asyncio.sleep(0)
+                await self.monitor_task
             except asyncio.CancelledError:
                 pass
         self.executor.shutdown(wait=False)
