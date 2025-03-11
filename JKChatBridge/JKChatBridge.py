@@ -25,7 +25,7 @@ class JKChatBridge(commands.Cog):
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
-        self.client_names = {}
+        self.client_names = {}  # Store client ID to full name mapping
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
@@ -144,7 +144,7 @@ class JKChatBridge(commands.Cog):
             mod_name = "Unknown"
             map_name = "Unknown"
             player_count = "0 humans, 0 bots"
-            players = []
+            online_client_ids = []
 
             for line in status_lines:
                 if "hostname:" in line:
@@ -159,8 +159,13 @@ class JKChatBridge(commands.Cog):
                     parts = re.split(r"\s+", line.strip(), maxsplit=4)
                     if len(parts) >= 4:
                         client_id = parts[0]
-                        player_name = self.remove_color_codes(parts[3].strip())
-                        players.append((client_id, player_name))
+                        online_client_ids.append(client_id)
+
+            # Get full names from self.client_names for online players
+            players = []
+            for client_id in online_client_ids:
+                player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
+                players.append((client_id, player_name))
 
             # Format player list with ID and name
             player_list = "No players online"
