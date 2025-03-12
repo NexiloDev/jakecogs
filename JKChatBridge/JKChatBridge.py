@@ -56,13 +56,11 @@ class JKChatBridge(commands.Cog):
             self.client_names.clear()
             for line in playerlist_lines:
                 parts = re.split(r"\s+", line.strip())
-                print(f"Playerlist line parts: {parts}")
-                if len(parts) >= 6 and parts[0].startswith("^"):  # Color code + ID + name + stats + username
-                    client_id = self.remove_color_codes(parts[1])  # Second field is client ID, remove color codes
-                    player_name = self.remove_color_codes(parts[2])  # Third field is name
+                if len(parts) >= 7 and parts[0].startswith("^"):  # Color code + name + stats + username
+                    client_id = self.remove_color_codes(parts[0])  # First field is color-coded client ID
+                    player_name = self.remove_color_codes(parts[1])  # Second field is name
                     username = parts[-1] if parts[-1] != "0" else None  # Last field is username
                     self.client_names[client_id] = (player_name, username)
-                    print(f"Playerlist update: Client {client_id} - Name: {player_name}, Username: {username}")
                 else:
                     print(f"Skipping line, insufficient parts or invalid format: {line}")
             print(f"Updated self.client_names: {self.client_names}")
