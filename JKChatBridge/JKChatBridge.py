@@ -26,6 +26,7 @@ class JKChatBridge(commands.Cog):
         self.monitoring = False
         self.monitor_task = None
         self.client_names = {}  # {client_id: (name, username)}
+        self.last_connected_client = None  # Track the most recent client ID that connected
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
@@ -385,20 +386,24 @@ class JKChatBridge(commands.Cog):
                                     await channel.send(discord_message)
                                 else:
                                     print(f"Channel {channel_id} not found!")
-                        elif "ClientBegin:" in line:
-                            client_id = line.split("ClientBegin: ")[1].strip()
-                            # Extract name from ClientBegin (assuming name follows client_id in some logs)
-                            name_match = re.search(r"ClientUserinfoChanged: \d+ n\\([^\\]+)", line)
-                            player_name = name_match.group(1) if name_match else f"Unknown (ID {client_id})"
-                            player_name = self.remove_color_codes(player_name)
-                            self.client_names[client_id] = (player_name, None)  # Initial entry with no username
-                            print(f"ClientBegin: Added {client_id}: ({player_name}, None) to client_names")
-                            await self.fetch_player_data()  # Update with playerlist after connect
-                            name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
-                            join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
-                            print(f"Sending to Discord channel {channel_id}: {join_message}")
-                            if channel and not name.endswith("-Bot"):
-                                await channel.send(join_message)
+                        elif "ClientConnect:" in line:
+                            self.last_connected_client = line.split("ClientConnect: ")[1].strip()
+                            print(f"ClientConnect: Set last_connected_client to {self.last_connected_client}")
+                        elif "ClientUserinfoChanged:" in line and self.last_connected_client:
+                            client_id = line.split("ClientUserinfoChanged: ")[1].split()[0]
+                            if client_id == self.last_connected_client:
+                                name_match = re.search(r"n\\([^\\]+)", line)
+                                if name_match:
+                                    player_name = self.remove_color_codes(name_match.group(1))
+                                    self.client_names[client_id] = (player_name, None)  # Initial entry with no username
+                                    print(f"ClientUserinfoChanged: Added {client_id}: ({player_name}, None) to client_names")
+                                    await self.fetch_player_data()  # Update with playerlist after connect
+                                    name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
+                                    join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
+                                    print(f"Sending to Discord channel {channel_id}: {join_message}")
+                                    if channel and not name.endswith("-Bot"):
+                                        await channel.send(join_message)
+                                    self.last_connected_client = None  # Reset after processing
                         elif "Player" in line and "has logged in" in line:
                             await self.fetch_player_data()  # Update with playerlist on login
                             print(f"Player logged in, refreshed player data: {self.client_names}")
