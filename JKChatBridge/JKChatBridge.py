@@ -25,16 +25,45 @@ class JKChatBridge(commands.Cog):
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
-        self.client_names = {}  # Now stores {client_id: (name, username)}
+        self.client_names = {}  # {client_id: (name, username)}
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
         )
+        # Start monitoring and fetch initial playerlist
         self.start_monitoring()
+        asyncio.create_task(self.fetch_initial_playerlist())
         print("JKChatBridge cog initialized.")
 
+    async def fetch_initial_playerlist(self):
+        """Fetch and store player data from rcon playerlist on cog load/reload."""
+        rcon_host = await self.config.rcon_host()
+        rcon_port = await self.config.rcon_port()
+        rcon_password = await self.config.rcon_password()
+        if not all([rcon_host, rcon_port, rcon_password]):
+            print("RCON settings not fully configured. Skipping initial playerlist fetch.")
+            return
+
+        try:
+            playerlist_response = await self.bot.loop.run_in_executor(
+                self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
+            )
+            playerlist_lines = playerlist_response.decode(errors='replace').splitlines()
+
+            for line in playerlist_lines:
+                if re.match(r"^\d+\s+\S+", line):
+                    parts = re.split(r"\s+", line.strip(), maxsplit=12)
+                    if len(parts) >= 12:
+                        client_id = parts[0]
+                        player_name = self.remove_color_codes(parts[1])
+                        username = parts[11] if parts[11] != "0" else None
+                        self.client_names[client_id] = (player_name, username)
+                        print(f"Initial playerlist update: Client {client_id} - Name: {player_name}, Username: {username}")
+        except Exception as e:
+            print(f"Error fetching initial playerlist: {e}")
+
     @commands.group(name="jkbridge", aliases=["jk"])
-    @commands.is_owner()  # Restrict group to bot owner
+    @commands.is_owner()
     async def jkbridge(self, ctx):
         """Configure the JK chat bridge (also available as 'jk'). Restricted to bot owner."""
         pass
@@ -109,7 +138,7 @@ class JKChatBridge(commands.Cog):
 
     @jkbridge.command()
     async def reloadmonitor(self, ctx):
-        """Force reload the log monitoring task."""
+        """Force reload the log monitoring task and refresh playerlist."""
         if self.monitor_task and not self.monitor_task.done():
             print(f"Canceling existing monitor task: {id(self.monitor_task)}")
             self.monitoring = False
@@ -120,7 +149,8 @@ class JKChatBridge(commands.Cog):
                 pass
         self.client_names.clear()
         self.start_monitoring()
-        await ctx.send("Log monitoring task reloaded.")
+        await self.fetch_initial_playerlist()  # Refresh playerlist on reload
+        await ctx.send("Log monitoring task and playerlist reloaded.")
 
     @commands.command(name="jkstatus")
     async def status(self, ctx):
@@ -133,24 +163,25 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
-            # Send 'playerlist' command via RCON
+            # Fetch playerlist for player data
             playerlist_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
             )
             playerlist_lines = playerlist_response.decode(errors='replace').splitlines()
 
-            # Parse playerlist response
-            server_name = "Unknown"  # Playerlist doesn't provide this, so we'll fetch separately if needed
-            mod_name = "Unknown"
-            map_name = "Unknown"
-            player_count = "0 humans, 0 bots"  # We'll update this based on playerlist
-            online_client_ids = []
-
-            # Fetch status for server details (since playerlist doesn't include them)
+            # Fetch status for server details
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", rcon_host, rcon_port, rcon_password
             )
             status_lines = status_response.decode(errors='replace').splitlines()
+
+            # Parse status response
+            server_name = "Unknown"
+            mod_name = "Unknown"
+            map_name = "Unknown"
+            player_count = "0 humans, 0 bots"
+            online_client_ids = []
+
             for line in status_lines:
                 if "hostname:" in line:
                     server_name = self.remove_color_codes(line.split("hostname:")[1].strip()).replace("Ç", "").encode().decode('ascii', 'ignore')
@@ -163,29 +194,28 @@ class JKChatBridge(commands.Cog):
 
             # Parse playerlist for client IDs, names, and usernames
             for line in playerlist_lines:
-                if re.match(r"^\d+\s+\S+", line):  # Matches lines starting with a number and a name
+                if re.match(r"^\d+\s+\S+", line):
                     parts = re.split(r"\s+", line.strip(), maxsplit=12)
                     if len(parts) >= 12:
                         client_id = parts[0]
                         player_name = self.remove_color_codes(parts[1])
-                        username = parts[11] if parts[11] != "0" else None  # Username is last column, "0" if not logged in
+                        username = parts[11] if parts[11] != "0" else None
                         online_client_ids.append(client_id)
-                        # Update self.client_names with name and username
                         self.client_names[client_id] = (player_name, username)
 
-            # Get full names from self.client_names (now updated with playerlist data)
+            # Build player list from online_client_ids
             players = []
             for client_id in online_client_ids:
                 name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
                 players.append((client_id, name))
 
-            # Format player list with ID and name
+            # Format player list
             player_list = "No players online"
             if players:
                 player_lines = [f"{client_id:<3} {name}" for client_id, name in players]
                 player_list = "```\n" + "\n".join(player_lines) + "\n```"
 
-            # Create fancy embed
+            # Create embed
             embed = discord.Embed(
                 title=f"🌌 {server_name} 🌌",
                 color=discord.Color.gold(),
@@ -210,23 +240,19 @@ class JKChatBridge(commands.Cog):
             return
         discord_username = message.author.display_name
         
-        # Replace typographic punctuation with ASCII equivalents in username
-        discord_username = discord_username.replace("’", "'").replace("‘", "'")  # Apostrophes
-        discord_username = discord_username.replace("“", "\"").replace("”", "\"")  # Curly quotes
-        discord_username = discord_username.replace("«", "\"").replace("»", "\"")  # Angle quotes
-        discord_username = discord_username.replace("–", "-").replace("—", "-")  # Dashes
-        discord_username = discord_username.replace("…", "...")  # Ellipsis
+        discord_username = discord_username.replace("’", "'").replace("‘", "'")
+        discord_username = discord_username.replace("“", "\"").replace("”", "\"")
+        discord_username = discord_username.replace("«", "\"").replace("»", "\"")
+        discord_username = discord_username.replace("–", "-").replace("—", "-")
+        discord_username = discord_username.replace("…", "...")
         
-        message_content = message.content  # Start with raw content
+        message_content = message.content
+        message_content = message_content.replace("’", "'").replace("‘", "'")
+        message_content = message_content.replace("“", "\"").replace("”", "\"")
+        message_content = message_content.replace("«", "\"").replace("»", "\"")
+        message_content = message_content.replace("–", "-").replace("—", "-")
+        message_content = message_content.replace("…", "...")
 
-        # Replace typographic punctuation with ASCII equivalents in message
-        message_content = message_content.replace("’", "'").replace("‘", "'")  # Apostrophes
-        message_content = message_content.replace("“", "\"").replace("”", "\"")  # Curly quotes
-        message_content = message_content.replace("«", "\"").replace("»", "\"")  # Angle quotes
-        message_content = message_content.replace("–", "-").replace("—", "-")  # Dashes
-        message_content = message_content.replace("…", "...")  # Ellipsis
-
-        # Process emojis: custom ones to :name:, remove standard Unicode emojis
         message_content = self.replace_emojis_with_names(message_content)
 
         if self.url_pattern.search(message_content):
@@ -373,7 +399,6 @@ class JKChatBridge(commands.Cog):
                             if name_match:
                                 player_name = self.remove_color_codes(name_match.group(1))
                                 username = username_match.group(1) if username_match else None
-                                # Update with name and username (username None if not logged in)
                                 self.client_names[client_id] = (player_name, username)
                                 print(f"Updated name for client {client_id}: {player_name}, Username: {username}")
                         elif "ClientBegin:" in line:
