@@ -6,6 +6,7 @@ import os
 import socket
 from concurrent.futures import ThreadPoolExecutor
 import re
+from datetime import datetime  # Added missing import
 
 class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with dynamic log file support for Lugormod."""
@@ -154,7 +155,7 @@ class JKChatBridge(commands.Cog):
                 pass
         self.client_names.clear()
         self.start_monitoring()
-        await self.fetch_player_data(ctx)  # Pass context to skip RCON
+        await self.fetch_player_data(ctx)
         await ctx.send("Log monitoring task and player data reloaded.")
 
     @commands.command(name="jkstatus")
@@ -168,7 +169,7 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
-            await self.fetch_player_data(ctx)  # Pass context to skip RCON
+            await self.fetch_player_data(ctx)
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", rcon_host, rcon_port, rcon_password
             )
@@ -291,7 +292,7 @@ class JKChatBridge(commands.Cog):
         return text
 
     def replace_text_emotes_with_emojis(self, text):
-        """Convert common text emoticons from Jedi Academy to Discord emojis."""
+        """Convert common text emoticons from Jedi Knight to Discord emojis."""
         text_emote_map = {
             ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
             ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣"
