@@ -236,7 +236,14 @@ class JKChatBridge(commands.Cog):
             response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, command, rcon_host, rcon_port, rcon_password
             )
-            response_text = response.decode(errors='replace')
+            # Try decoding with different encodings
+            try:
+                response_text = response.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    response_text = response.decode('latin-1')
+                except UnicodeDecodeError:
+                    response_text = response.decode('cp1252', errors='replace')
             print(f"Raw RCON response for 'accountinfo {username}':\n{response_text}")
             response_lines = response_text.splitlines()
         except Exception as e:
@@ -288,6 +295,11 @@ class JKChatBridge(commands.Cog):
         # Create the embed with username in the title
         player_name = stats.get("Name", username)
         player_username = stats.get("Username", "N/A")
+        # Ensure the player_name is properly encoded for Discord
+        try:
+            player_name = player_name.encode().decode('utf-8', errors='replace')
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            player_name = ''.join(c for c in player_name if ord(c) < 128)  # Fallback to ASCII
         embed_title = f"Player Stats for {player_name} *({player_username})*"
         embed = discord.Embed(
             title=embed_title,
