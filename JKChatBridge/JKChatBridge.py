@@ -9,7 +9,16 @@ import re
 from datetime import datetime
 
 class JKChatBridge(commands.Cog):
-    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with dynamic log file support for Lugormod."""
+    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with dynamic log file support for Lugormod.
+
+    **Commands:**
+    - `!jkstatus`: Display detailed server status with emojis. Accessible to all users.
+      **Usage:** `!jkstatus`
+    - `!jkplayer <username>`: Display player stats for the given username. Accessible to all users.
+      **Usage:** `!jkplayer <username>` **Example:** `!jkplayer Padawan`
+    - `!jkexec <filename>`: Execute a server config file via RCON (Bot Owners/Admins only).
+      **Usage:** `!jkexec <filename>` **Example:** `!jkexec server.cfg`
+    """
 
     def __init__(self, bot):
         # Store the bot instance so I can use it throughout the class
@@ -180,7 +189,10 @@ class JKChatBridge(commands.Cog):
 
     @commands.command(name="jkstatus")
     async def status(self, ctx):
-        """Display detailed server status with emojis. Accessible to all users."""
+        """Display detailed server status with emojis. Accessible to all users.
+
+        **Usage:** `!jkstatus`
+        """
         # Get RCON settings
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
@@ -239,7 +251,10 @@ class JKChatBridge(commands.Cog):
 
     @commands.command(name="jkplayer")
     async def player_info(self, ctx, username: str):
-        """Display player stats for the given username."""
+        """Display player stats for the given username. Accessible to all users.
+
+        **Usage:** `!jkplayer <username>` **Example:** `!jkplayer Padawan`
+        """
         # Get RCON settings
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
@@ -422,13 +437,15 @@ class JKChatBridge(commands.Cog):
         # Replace custom emojis with their names (e.g., :emoji_name:)
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
-        # Remove common Unicode emojis
+        # Map Unicode emojis to text representations for game compatibility
         emoji_map = {
-            "😊": "", "😄": "", "😂": "", "🤣": "", "😉": "", "😛": "", "😢": "", "😡": "",
-            "👍": "", "👎": "", "❤️": "", "💖": "", "😍": "", "🙂": "", "😣": "", "😜": ""
+            "😊": ":)", "😄": ":D", "😂": "XD", "🤣": "xD", "😉": ";)", "😛": ":P", "😢": ":(", "😡": ">:(",
+            "👍": ":+1:", "👎": ":-1:", "❤️": "<3", "💖": "<3", "😍": ":*", "🙂": ":)", "😣": ":S", "😜": ";P",
+            "😮": ":o", "😁": "=D", "😆": "xD", "😳": "O.o", "🤓": "B)", "😴": "-_-", "😅": "^^;", "😒": ":/",
+            "😘": ":*", "😎": "8)", "😱": "D:", "🤔": ":?", "🥳": "\\o/", "🤗": ">^.^<", "🤪": ":p"
         }
-        for unicode_emoji, _ in emoji_map.items():
-            text = text.replace(unicode_emoji, "")
+        for unicode_emoji, text_emote in emoji_map.items():
+            text = text.replace(unicode_emoji, text_emote)
         return text
 
     def replace_text_emotes_with_emojis(self, text):
@@ -436,7 +453,9 @@ class JKChatBridge(commands.Cog):
         # Map text emotes to their emoji equivalents
         text_emote_map = {
             ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
-            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣"
+            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣",
+            ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
+            ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪"
         }
         for text_emote, emoji in text_emote_map.items():
             text = text.replace(text_emote, emoji)
@@ -601,6 +620,31 @@ class JKChatBridge(commands.Cog):
                 pass
         # Shut down the thread pool
         self.executor.shutdown(wait=False)
+
+    @commands.command(name="jkexec")
+    @commands.is_owner()
+    @commands.has_permissions(administrator=True)
+    async def jkexec(self, ctx, filename: str):
+        """Execute a server config file via RCON (Bot Owners/Admins only).
+
+        **Usage:** `!jkexec <filename>` **Example:** `!jkexec server.cfg`
+        """
+        # Get RCON settings
+        rcon_host = await self.config.rcon_host()
+        rcon_port = await self.config.rcon_port()
+        rcon_password = await self.config.rcon_password()
+        if not all([rcon_host, rcon_port, rcon_password]):
+            await ctx.send("RCON settings not fully configured. Please contact an admin.")
+            return
+
+        try:
+            # Send the 'exec' command to the game server
+            await self.bot.loop.run_in_executor(
+                self.executor, self.send_rcon_command, f"exec {filename}", rcon_host, rcon_port, rcon_password
+            )
+            await ctx.send(f"Executed configuration file: {filename}")
+        except Exception as e:
+            await ctx.send(f"Failed to execute {filename}: {e}")
 
 async def setup(bot):
     """Set up the JKChatBridge cog when the bot loads."""
