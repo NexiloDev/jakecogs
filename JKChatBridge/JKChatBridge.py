@@ -260,11 +260,11 @@ class JKChatBridge(commands.Cog):
             await ctx.send(f"Player '{username}' not found.")
             return
 
-        # Calculate W/L ratio (corrected logic)
+        # Calculate W/L ratio (mirroring K/D logic)
         wins = int(stats.get("Duels won", "0"))
         total_duels = int(stats.get("Total duels", "0"))
         losses = max(0, total_duels - wins)  # Ensure no negative losses
-        w_l_ratio = wins / losses if losses > 0 else wins if wins > 0 else 0.0  # Use wins if no losses
+        w_l_ratio = wins / losses if losses > 0 else wins if wins > 0 else 0.0
 
         # Calculate K/D ratio
         kills = int(stats.get("Kills", "0"))
@@ -277,9 +277,12 @@ class JKChatBridge(commands.Cog):
             hours = playtime.split(":")[0]
             playtime = f"{hours} Hrs"
 
-        # Create the embed with a blank line instead of separator
+        # Create the embed with username in the title
+        player_name = stats.get("Name", username)
+        player_username = stats.get("Username", "N/A")
+        embed_title = f"Player Stats for {player_name} *({player_username})*"
         embed = discord.Embed(
-            title=f"Player Stats for {stats.get('Name', username)}",
+            title=embed_title,
             color=discord.Color.blue()
         )
         embed.description = "\n"  # Blank line for separation
