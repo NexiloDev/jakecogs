@@ -260,23 +260,35 @@ class JKChatBridge(commands.Cog):
             await ctx.send(f"Player '{username}' not found.")
             return
 
-        # Calculate W/L ratio
+        # Calculate W/L ratio (fixed to use wins / (total_duels - wins) if losses > 0)
         wins = int(stats.get("Duels won", "0"))
         total_duels = int(stats.get("Total duels", "0"))
-        losses = total_duels - wins if total_duels >= wins else 0
-        w_l_ratio = wins / losses if losses > 0 else wins
+        losses = total_duels - wins if total_duels > wins else 0  # Avoid negative losses
+        w_l_ratio = wins / losses if losses > 0 else float('inf') if wins > 0 else 0.0  # Handle edge cases
 
         # Calculate K/D ratio
         kills = int(stats.get("Kills", "0"))
         deaths = int(stats.get("Deaths", "0"))
-        kd_ratio = kills / deaths if deaths > 0 else kills
+        kd_ratio = kills / deaths if deaths > 0 else float('inf') if kills > 0 else 0.0  # Match W/L logic
 
-        # Create the embed
+        # Format playtime (hours only)
+        playtime = stats.get("Time", "N/A")
+        if ":" in playtime and playtime != "N/A":
+            hours = playtime.split(":")[0]
+            playtime = f"{hours} Hrs"
+
+        # Create the embed with separator
         embed = discord.Embed(
-            title=f"🌟 Player Stats for {stats.get('Name', username)} 🌟",
+            title=f"Player Stats for {stats.get('Name', username)}",
             color=discord.Color.blue()
         )
-        embed.add_field(name="⏱️ Playtime", value=stats.get("Time", "N/A"), inline=True)
+        # Calculate separator width (double the title length for minimum width)
+        title_length = len(f"Player Stats for {stats.get('Name', username)}")
+        min_separator_width = title_length * 2  # Double the title length
+        separator = "=" * max(min_separator_width, 40)  # Ensure at least 40 chars
+        embed.description = separator  # Add separator below title
+
+        embed.add_field(name="⏱️ Playtime", value=playtime, inline=True)
         embed.add_field(name="🔼 Level", value=stats.get("Level", "N/A"), inline=True)
         embed.add_field(name="🛡️ Profession", value=stats.get("Profession", "N/A"), inline=True)
         embed.add_field(name="💰 Credits", value=stats.get("Credits", "N/A"), inline=True)
