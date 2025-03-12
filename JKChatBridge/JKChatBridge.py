@@ -122,7 +122,7 @@ class JKChatBridge(commands.Cog):
         self.start_monitoring()
         await ctx.send("Log monitoring task reloaded.")
 
-    @commands.command(name="jkstatus")  # Standalone command, no restrictions
+    @commands.command(name="jkstatus")
     async def status(self, ctx):
         """Display detailed server status with emojis. Accessible to all users."""
         rcon_host = await self.config.rcon_host()
@@ -156,12 +156,16 @@ class JKChatBridge(commands.Cog):
                 elif "players :" in line:
                     player_count = line.split("players :")[1].strip()
                 elif re.match(r"^\s*\d+\s+\d+\s+\d+\s+.*$", line):
+                    # Player line format: "client_id score ping name"
                     parts = re.split(r"\s+", line.strip(), maxsplit=4)
                     if len(parts) >= 4:
                         client_id = parts[0]
+                        player_name = self.remove_color_codes(parts[3].strip())
                         online_client_ids.append(client_id)
+                        # Update self.client_names with the name from RCON status
+                        self.client_names[client_id] = player_name
 
-            # Get full names from self.client_names for online players
+            # Get full names from self.client_names (now updated with RCON data)
             players = []
             for client_id in online_client_ids:
                 player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
