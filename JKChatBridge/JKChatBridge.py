@@ -226,10 +226,12 @@ class JKChatBridge(commands.Cog):
                         current_username = self.client_names.get(client_id, (None, None))[1]
                         self.client_names[client_id] = (player_name, current_username)
 
-            players = [(cid, self.client_names[cid][0]) for cid in online_client_ids if cid in self.client_names]
+            # Build player list with usernames in brackets
+            players = [(cid, f"{self.client_names[cid][0]}({self.client_names[cid][1] or 'None'})") 
+                       for cid in online_client_ids if cid in self.client_names]
             player_list = "No players online"
             if players:
-                player_lines = [f"{client_id:<3} {name}" for client_id, name in players]
+                player_lines = [f"{client_id:<3} {name_with_username}" for client_id, name_with_username in players]
                 player_list = "```\n" + "\n".join(player_lines) + "\n```"
 
             embed = discord.Embed(
