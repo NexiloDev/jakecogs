@@ -67,7 +67,7 @@ class JKChatBridge(commands.Cog):
                     player_name = self.remove_color_codes(parts[1])
                     username = parts[-1] if parts[-1].isalpha() or not parts[-1].isdigit() else None
                     temp_client_names[client_id] = (player_name, username)
-            # Only update existing entries or add new ones if not already set from log
+            # Only update existing entries or add new ones if not already set
             for client_id, (name, username) in temp_client_names.items():
                 if client_id not in self.client_names or self.client_names[client_id][1]:  # Update if no username or already logged in
                     self.client_names[client_id] = (name, username)
@@ -75,6 +75,7 @@ class JKChatBridge(commands.Cog):
         except Exception as e:
             print(f"Error fetching player data from playerlist: {e}")
 
+    ### Command Group: jkbridge
     @commands.group(name="jkbridge", aliases=["jk"])
     @commands.is_owner()
     async def jkbridge(self, ctx):
@@ -163,6 +164,7 @@ class JKChatBridge(commands.Cog):
         await self.fetch_player_data(ctx)
         await ctx.send("Log monitoring task and player data reloaded.")
 
+    ### Command: jkstatus
     @commands.command(name="jkstatus")
     async def status(self, ctx):
         """Display detailed server status with emojis. Accessible to all users."""
@@ -216,31 +218,95 @@ class JKChatBridge(commands.Cog):
             print(f"Error fetching server status: {e}")
             await ctx.send(f"Failed to retrieve server status: {e}")
 
+    ### Command: jkplayer
+    @commands.command(name="jkplayer")
+    async def player_info(self, ctx, username: str):
+        """Display player stats for the given username."""
+        rcon_host = await self.config.rcon_host()
+        rcon_port = await self.config.rcon_port()
+        rcon_password = await self.config.rcon_password()
+        if not all([rcon_host, rcon_port, rcon_password]):
+            await ctx.send("RCON settings not fully configured. Please contact an admin.")
+            return
+
+        command = f"accountinfo {username}"
+        try:
+            response = await self.bot.loop.run_in_executor(
+                self.executor, self.send_rcon_command, command, rcon_host, rcon_port, rcon_password
+            )
+            response_lines = response.decode(errors='replace').splitlines()
+        except Exception as e:
+            await ctx.send(f"Failed to retrieve player info: {e}")
+            return
+
+        stats = {}
+        for line in response_lines:
+            if ":" in line:
+                key, value = line.split(":", 1)
+                key = key.strip()
+                value = value.strip()
+                stats[key] = value
+
+        if "Id" not in stats:
+            await ctx.send(f"Player '{username}' not found.")
+            return
+
+        # Calculate W/L ratio
+        wins = int(stats.get("Duels won", "0"))
+        total_duels = int(stats.get("Total duels", "0"))
+        losses = total_duels - wins if total_duels >= wins else 0
+        w_l_ratio = wins / losses if losses > 0 else wins
+
+        # Calculate K/D ratio
+        kills = int(stats.get("Kills", "0"))
+        deaths = int(stats.get("Deaths", "0"))
+        kd_ratio = kills / deaths if deaths > 0 else kills
+
+        # Create the embed
+        embed = discord.Embed(
+            title=f"🌟 Player Stats for {stats.get('Name', username)} 🌟",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="⏱️ Playtime", value=stats.get("Time", "N/A"), inline=True)
+        embed.add_field(name="🔼 Level", value=stats.get("Level", "N/A"), inline=True)
+        embed.add_field(name="🛡️ Profession", value=stats.get("Profession", "N/A"), inline=True)
+        embed.add_field(name="💰 Credits", value=stats.get("Credits", "N/A"), inline=True)
+        embed.add_field(name="💼 Stashes", value=stats.get("Stashes", "N/A"), inline=True)
+        embed.add_field(name="🏆 Duel Score", value=stats.get("Score", "N/A"), inline=True)
+        embed.add_field(name="⚔️ Duel W/L Ratio", value=f"{w_l_ratio:.2f}", inline=True)
+        embed.add_field(name="🗡️ K/D Ratio", value=f"{kd_ratio:.2f}", inline=True)
+
+        # Set footer with Last Login
+        last_login = stats.get("Last login", "N/A")
+        embed.set_footer(text=f"Last Login: {last_login}")
+
+        await ctx.send(embed=embed)
+
+    ### Listener: on_message
     @commands.Cog.listener()
     async def on_message(self, message):
         """Handle messages from Discord and send them to the game server via RCON."""
         channel_id = await self.config.discord_channel_id()
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
-        # Get the bot's prefix (handles dynamic prefixes)
         prefix = self.bot.command_prefix(self.bot, message)
         if isinstance(prefix, (tuple, list)):
-            prefix = prefix[0]  # Use the first prefix if multiple
+            prefix = prefix[0]
         else:
             prefix = str(prefix)
-        # Check if the message is a filtered command
-        content = message.content.lower().strip()
-        if any(content == f"{prefix}{cmd}" for cmd in self.filtered_commands):
-            print(f"Skipping RCON for command: {content}")
-            return
+        # Command filtering is commented out
+        # content = message.content.lower().strip()
+        # if any(content == f"{prefix}{cmd}" for cmd in self.filtered_commands):
+        #     print(f"Skipping RCON for command: {content}")
+        #     return
         discord_username = message.author.display_name
-        
+
         discord_username = discord_username.replace("’", "'").replace("‘", "'")
         discord_username = discord_username.replace("“", "\"").replace("”", "\"")
         discord_username = discord_username.replace("«", "\"").replace("»", "\"")
         discord_username = discord_username.replace("–", "-").replace("—", "-")
         discord_username = discord_username.replace("…", "...")
-        
+
         message_content = message.content
         message_content = message_content.replace("’", "'").replace("‘", "'")
         message_content = message_content.replace("“", "\"").replace("”", "\"")
@@ -257,7 +323,7 @@ class JKChatBridge(commands.Cog):
         initial_prefix = f"say ^5{{D}}^7{discord_username}^2: "
         continuation_prefix = "say "
         max_length = 115
-        
+
         chunks = []
         remaining = message_content
         is_first_chunk = True
@@ -281,7 +347,7 @@ class JKChatBridge(commands.Cog):
             print("RCON settings not fully configured.")
             await message.channel.send("RCON settings not fully configured. Please contact an admin.")
             return
-        
+
         try:
             for i, chunk in enumerate(chunks):
                 if i == 0:
@@ -295,6 +361,7 @@ class JKChatBridge(commands.Cog):
             print(f"Error sending RCON command: {e}")
             await message.channel.send(f"Failed to send to game: {e}")
 
+    ### Helper Methods
     def replace_emojis_with_names(self, text):
         """Replace custom Discord emojis with :name: and remove standard Unicode emojis."""
         for emoji in self.bot.emojis:
@@ -441,10 +508,6 @@ class JKChatBridge(commands.Cog):
             self.monitor_task = self.bot.loop.create_task(self.monitor_log())
             print(f"Monitor task created: {id(self.monitor_task)}")
 
-    def remove_color_codes(self, text):
-        """Remove Jedi Academy color codes (e.g., ^1, ^7) from text."""
-        return re.sub(r'\^\d', '', text)
-
     def parse_chat_line(self, line):
         """Parse a chat line from the log into player name and message."""
         say_index = line.find("say: ")
@@ -469,6 +532,7 @@ class JKChatBridge(commands.Cog):
         self.executor.shutdown(wait=False)
         print("JKChatBridge cog unloaded.")
 
+### Setup Function
 async def setup(bot):
     cog = JKChatBridge(bot)
     await bot.add_cog(cog)
