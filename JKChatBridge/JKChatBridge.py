@@ -247,11 +247,20 @@ class JKChatBridge(commands.Cog):
             if timestamp_pattern.match(line) or line.startswith('\xff\xff\xff\xffprint'):
                 continue  # Skip timestamp lines and initial print marker
             if ":" in line:
+                # Handle lines with a colon (e.g., "^3Duels won:     ^21159")
                 key, value = map(str.strip, line.split(":", 1))
-                clean_key = self.remove_color_codes(key)
-                clean_value = self.remove_color_codes(value)
-                if clean_key and clean_value:  # Only add if both are non-empty
-                    stats[clean_key] = clean_value
+            else:
+                # Handle lines without a colon (e.g., "^3Total duels    ^21934")
+                parts = re.split(r'\s{2,}', line)  # Split on two or more spaces
+                if len(parts) >= 2:
+                    key = parts[0]
+                    value = parts[-1]
+                else:
+                    continue  # Skip lines that don’t have a key-value pair
+            clean_key = self.remove_color_codes(key)
+            clean_value = self.remove_color_codes(value)
+            if clean_key and clean_value:
+                stats[clean_key] = clean_value
 
         print(f"Parsed stats: {stats}")
 
