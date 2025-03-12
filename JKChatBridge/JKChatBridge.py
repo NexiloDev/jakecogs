@@ -6,7 +6,7 @@ import os
 import socket
 from concurrent.futures import ThreadPoolExecutor
 import re
-from datetime import datetime  # Added missing import
+from datetime import datetime
 
 class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with dynamic log file support for Lugormod."""
@@ -56,7 +56,7 @@ class JKChatBridge(commands.Cog):
             playerlist_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
             )
-            self.client_names.clear()
+            temp_client_names = {}
             for line in playerlist_response.decode(errors='replace').splitlines():
                 if "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
                     continue
@@ -65,7 +65,11 @@ class JKChatBridge(commands.Cog):
                     client_id = self.remove_color_codes(parts[0])
                     player_name = self.remove_color_codes(parts[1])
                     username = parts[-1] if parts[-1].isalpha() or not parts[-1].isdigit() else None
-                    self.client_names[client_id] = (player_name, username)
+                    temp_client_names[client_id] = (player_name, username)
+            # Only update existing entries or add new ones if not already set from log
+            for client_id, (name, username) in temp_client_names.items():
+                if client_id not in self.client_names or self.client_names[client_id][1]:  # Update if no username or already logged in
+                    self.client_names[client_id] = (name, username)
             print(f"Updated self.client_names: {self.client_names}")
         except Exception as e:
             print(f"Error fetching player data from playerlist: {e}")
@@ -216,6 +220,9 @@ class JKChatBridge(commands.Cog):
         """Handle messages from Discord and send them to the game server via RCON."""
         channel_id = await self.config.discord_channel_id()
         if not channel_id or message.channel.id != channel_id or message.author.bot:
+            return
+        # Skip messages starting with the bot's prefix
+        if message.content.startswith(self.bot.command_prefix):
             return
         discord_username = message.author.display_name
         
@@ -370,7 +377,6 @@ class JKChatBridge(commands.Cog):
                                     player_name = self.remove_color_codes(name_match.group(1))
                                     self.client_names[client_id] = (player_name, None)
                                     print(f"ClientUserinfoChanged handling info: Added {client_id}: ({player_name}, None) to client_names")
-                                    await self.fetch_player_data()
                                     name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
                                     join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                                     if channel and not name.endswith("-Bot"):
@@ -384,7 +390,6 @@ class JKChatBridge(commands.Cog):
                                     player_name = self.remove_color_codes(name_match.group(1))
                                     self.client_names[client_id] = (player_name, None)
                                     print(f"ClientUserinfoChanged: Added {client_id}: ({player_name}, None) to client_names")
-                                    await self.fetch_player_data()
                                     name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
                                     join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                                     if channel and not name.endswith("-Bot"):
