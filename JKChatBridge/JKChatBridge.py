@@ -48,8 +48,6 @@ class JKChatBridge(commands.Cog):
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
         )
-        # List of commands to filter out from being sent to the game
-        self.filtered_commands = {"jkstatus", "jkbridge", "jk"}
         # Start monitoring the game log file for chat and events
         self.start_monitoring()
 
@@ -59,11 +57,7 @@ class JKChatBridge(commands.Cog):
 
     async def fetch_player_data(self, ctx=None):
         """Fetch player data (ID, name, username) from the game server using the RCON 'playerlist' command."""
-        # Get RCON settings from the config
-        rcon_host = await self.config.rcon_host()
-        rcon_port = await self.config.rcon_port()
-        rcon_password = await self.config.rcon_password()
-        if not all([rcon_host, rcon_port, rcon_password]):
+        if not await self.validate_rcon_settings():
             return  # Can't proceed without RCON settings
 
         # Skip RCON command if called from a command context (e.g., jkstatus)
@@ -73,7 +67,7 @@ class JKChatBridge(commands.Cog):
         try:
             # Send the 'playerlist' command to the game server
             playerlist_response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
+                self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             temp_client_names = {}
             # Parse each line of the playerlist response
@@ -100,6 +94,13 @@ class JKChatBridge(commands.Cog):
                     self.client_names[client_id] = (name, username)
         except Exception as e:
             pass  # Silently fail if fetching player data fails
+
+    async def validate_rcon_settings(self):
+        """Check if RCON settings are fully configured."""
+        rcon_host = await self.config.rcon_host()
+        rcon_port = await self.config.rcon_port()
+        rcon_password = await self.config.rcon_password()
+        return all([rcon_host, rcon_port, rcon_password])
 
     @commands.group(name="jkbridge", aliases=["jk"])
     @commands.is_owner()
@@ -193,11 +194,7 @@ class JKChatBridge(commands.Cog):
 
         **Usage:** `!jkstatus`
         """
-        # Get RCON settings
-        rcon_host = await self.config.rcon_host()
-        rcon_port = await self.config.rcon_port()
-        rcon_password = await self.config.rcon_password()
-        if not all([rcon_host, rcon_port, rcon_password]):
+        if not await self.validate_rcon_settings():
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
 
@@ -206,7 +203,7 @@ class JKChatBridge(commands.Cog):
             await self.fetch_player_data(ctx)
             # Send the 'status' command to the game server
             status_response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "status", rcon_host, rcon_port, rcon_password
+                self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_lines = status_response.decode(errors='replace').splitlines()
 
@@ -255,11 +252,7 @@ class JKChatBridge(commands.Cog):
 
         **Usage:** `!jkplayer <username>` **Example:** `!jkplayer Padawan`
         """
-        # Get RCON settings
-        rcon_host = await self.config.rcon_host()
-        rcon_port = await self.config.rcon_port()
-        rcon_password = await self.config.rcon_password()
-        if not all([rcon_host, rcon_port, rcon_password]):
+        if not await self.validate_rcon_settings():
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
 
@@ -267,7 +260,7 @@ class JKChatBridge(commands.Cog):
         command = f"accountinfo {username}"
         try:
             response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, command, rcon_host, rcon_port, rcon_password
+                self.executor, self.send_rcon_command, command, await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             # Try decoding the response with different encodings to handle special characters
             try:
@@ -412,11 +405,7 @@ class JKChatBridge(commands.Cog):
             remaining = remaining[split_point:].strip()
             is_first_chunk = False
 
-        # Get RCON settings for sending the message
-        rcon_host = await self.config.rcon_host()
-        rcon_port = await self.config.rcon_port()
-        rcon_password = await self.config.rcon_password()
-        if not all([rcon_host, rcon_port, rcon_password]):
+        if not await self.validate_rcon_settings():
             await message.channel.send("RCON settings not fully configured. Please contact an admin.")
             return
         
@@ -427,7 +416,7 @@ class JKChatBridge(commands.Cog):
                     server_command = f"{initial_prefix}{chunk}"
                 else:
                     server_command = f"{continuation_prefix}{chunk}"
-                await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, rcon_host, rcon_port, rcon_password)
+                await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password())
                 await asyncio.sleep(0.1)  # Small delay to avoid flooding
         except Exception as e:
             await message.channel.send(f"Failed to send to game: {e}")
@@ -583,8 +572,10 @@ class JKChatBridge(commands.Cog):
                         elif "duel:" in line and "won a duel against" in line:
                             parts = line.split("duel:")[1].split("won a duel against")
                             if len(parts) == 2 and channel:
-                                winner = self.remove_color_codes(parts[0].strip())
-                                loser = self.remove_color_codes(parts[1].strip())
+                                winner_text = parts[0].strip()
+                                loser_text = parts[1].strip()
+                                winner = self.remove_color_codes(winner_text)
+                                loser = self.remove_color_codes(loser_text)
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
             except FileNotFoundError:
                 await asyncio.sleep(5)
@@ -629,18 +620,14 @@ class JKChatBridge(commands.Cog):
 
         **Usage:** `!jkexec <filename>` **Example:** `!jkexec server.cfg`
         """
-        # Get RCON settings
-        rcon_host = await self.config.rcon_host()
-        rcon_port = await self.config.rcon_port()
-        rcon_password = await self.config.rcon_password()
-        if not all([rcon_host, rcon_port, rcon_password]):
+        if not await self.validate_rcon_settings():
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
 
         try:
             # Send the 'exec' command to the game server
             await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, f"exec {filename}", rcon_host, rcon_port, rcon_password
+                self.executor, self.send_rcon_command, f"exec {filename}", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             await ctx.send(f"Executed configuration file: {filename}")
         except Exception as e:
