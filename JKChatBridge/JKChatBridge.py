@@ -122,7 +122,7 @@ class JKChatBridge(commands.Cog):
         self.start_monitoring()
         await ctx.send("Log monitoring task reloaded.")
 
-    @jkbridge.command(name="status")
+    @commands.command(name="jkstatus")  # Standalone command, no restrictions
     async def status(self, ctx):
         """Display detailed server status with emojis. Accessible to all users."""
         rcon_host = await self.config.rcon_host()
