@@ -67,9 +67,14 @@ class JKChatBridge(commands.Cog):
                     player_name = self.remove_color_codes(parts[1])
                     username = parts[-1] if parts[-1].isalpha() or not parts[-1].isdigit() else None
                     temp_client_names[client_id] = (player_name, username)
-            # Only update existing entries or add new ones if not already set from log
+            # Only update username if it exists, preserve the original name
             for client_id, (name, username) in temp_client_names.items():
-                if client_id not in self.client_names or self.client_names[client_id][1]:  # Update if no username or already logged in
+                if client_id in self.client_names:
+                    # Preserve the existing name, only update the username
+                    existing_name, _ = self.client_names[client_id]
+                    self.client_names[client_id] = (existing_name, username)
+                else:
+                    # If client_id doesn't exist, add the new entry
                     self.client_names[client_id] = (name, username)
             print(f"Updated self.client_names: {self.client_names}")
         except Exception as e:
@@ -494,6 +499,18 @@ class JKChatBridge(commands.Cog):
                                         await channel.send(join_message)
                                     self.last_connected_client = None
                         elif "Player" in line and "has logged in" in line:
+                            # Parse the login message to update the name
+                            match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged in', line)
+                            if match:
+                                player_name = self.remove_color_codes(match.group(1))
+                                username = match.group(2)
+                                # Find the client_id for this player_name
+                                for cid, (name, _) in self.client_names.items():
+                                    if name == player_name:
+                                        self.client_names[cid] = (player_name, username)
+                                        print(f"Player logged in: Updated {cid}: ({player_name}, {username})")
+                                        break
+                            # Still fetch player data to update other details, but don't overwrite the name
                             await self.fetch_player_data()
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
