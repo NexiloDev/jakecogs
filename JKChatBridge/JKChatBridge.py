@@ -347,8 +347,8 @@ class JKChatBridge(commands.Cog):
         # Ignore messages that aren't in the configured channel or are from bots
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
-        # Get the bot's command prefix
-        prefix = self.bot.command_prefix(self.bot, message)
+        # Get the bot's command prefix (await it since it might be a coroutine)
+        prefix = await self.bot.command_prefix(self.bot, message)
         if isinstance(prefix, (tuple, list)):
             prefix = prefix[0]
         else:
@@ -358,7 +358,7 @@ class JKChatBridge(commands.Cog):
         discord_username = self.clean_special_characters(message.author.display_name)
         message_content = self.clean_special_characters(message.content)
 
-        # Replace Discord emojis with their names
+        # Replace Discord emojis with their corresponding text emotes
         message_content = self.replace_emojis_with_names(message_content)
 
         # Block messages containing URLs
@@ -416,22 +416,22 @@ class JKChatBridge(commands.Cog):
         return text
 
     def replace_emojis_with_names(self, text):
-        """Replace custom Discord emojis with :name: and remove standard Unicode emojis."""
+        """Replace custom Discord emojis with :name: and convert standard Unicode emojis to text emotes."""
         # Replace custom emojis with their names (e.g., :emoji_name:)
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
-        # Remove common Unicode emojis using a loop (since str.maketrans doesn't support multi-character keys)
-        emoji_map = {
-            "😊": "", "😄": "", "😂": "", "🤣": "", "😉": "", "😛": "", "😢": "", "😡": "",
-            "👍": "", "👎": "", "❤️": "", "💖": "", "😍": "", "🙂": "", "😣": "", "😜": ""
+        # Convert standard Unicode emojis to their corresponding text emotes
+        emoji_to_text_map = {
+            "😊": ":)", "😄": ":D", "😂": "XD", "🤣": "xD", "😉": ";)", "😛": ":P", "😢": ":(",
+            "😡": ">:(", "👍": ":+1:", "👎": ":-1:", "❤️": "<3", "💖": "<3", "😍": ":*", "🙂": ":)", "😣": ":S", "😜": ";P"
         }
-        for unicode_emoji, _ in emoji_map.items():
-            text = text.replace(unicode_emoji, "")
+        for emoji, text_emote in emoji_to_text_map.items():
+            text = text.replace(emoji, text_emote)
         return text
 
     def replace_text_emotes_with_emojis(self, text):
         """Convert common text emoticons from Jedi Knight to Discord emojis."""
-        # Map text emotes to their emoji equivalents using a loop (since str.maketrans doesn't support multi-character keys)
+        # Map text emotes to their emoji equivalents using a loop
         text_emote_map = {
             ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
             ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣"
