@@ -25,13 +25,13 @@ class JKChatBridge(commands.Cog):
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
-        self.client_names = {}  # {client_id: (original_name, username)}
+        self.client_names = {}  # {client_id: (name, username)}
         self.last_connected_client = None  # Track the most recent client ID that connected
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
         )
-        self.filtered_commands = {"jkstatus"}  # Commands to filter (add more as needed, e.g., "jknewcommand")
+        self.filtered_commands = {"jkstatus"}  # Commands to filter (add more as needed)
         self.start_monitoring()
         print("JKChatBridge cog initialized.")
 
@@ -57,7 +57,7 @@ class JKChatBridge(commands.Cog):
             playerlist_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
             )
-            temp_client_names = {}
+            self.client_names.clear()
             for line in playerlist_response.decode(errors='replace').splitlines():
                 if "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
                     continue
@@ -66,11 +66,7 @@ class JKChatBridge(commands.Cog):
                     client_id = self.remove_color_codes(parts[0])
                     player_name = self.remove_color_codes(parts[1])
                     username = parts[-1] if parts[-1].isalpha() or not parts[-1].isdigit() else None
-                    temp_client_names[client_id] = (player_name, username)
-            # Only update existing entries or add new ones if logged in (has username)
-            for client_id, (name, username) in temp_client_names.items():
-                if username:  # Only update if logged in
-                    self.client_names[client_id] = (name, username)
+                    self.client_names[client_id] = (player_name, username)
             print(f"Updated self.client_names: {self.client_names}")
         except Exception as e:
             print(f"Error fetching player data from playerlist: {e}")
@@ -230,6 +226,7 @@ class JKChatBridge(commands.Cog):
             prefix = str(prefix)
         # Check if the message starts with a filtered command
         content = message.content.strip()
+        print(f"Checking content: {content}, prefix: {prefix}, filtered: {self.filtered_commands}")
         if any(content.startswith(f"{prefix}{cmd}") for cmd in self.filtered_commands):
             print(f"Skipping RCON for command: {content}")
             return
@@ -367,21 +364,10 @@ class JKChatBridge(commands.Cog):
                             continue
                         line = line.strip()
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
-                            client_id = None
-                            # Attempt to extract client ID from the log line context
-                            if "ClientUserinfoChanged" in line or "ClientConnect" in line or "ClientBegin" in line or "say:" in line:
-                                client_id_match = re.search(r"(\d+)", line.split(":")[0])
-                                if client_id_match:
-                                    client_id = client_id_match.group(0)
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
                                 if self.url_pattern.search(message):
                                     continue
-                                # Use the original name from client_names if available and not "Padawan"
-                                if client_id and client_id in self.client_names:
-                                    original_name = self.client_names[client_id][0]
-                                    if original_name and "Padawan" not in original_name:
-                                        player_name = original_name
                                 message = self.replace_text_emotes_with_emojis(message)
                                 discord_message = f"{custom_emoji} **{player_name}**: {message}"
                                 if channel:
@@ -393,10 +379,11 @@ class JKChatBridge(commands.Cog):
                             client_id = line.split("ClientUserinfoChanged handling info: ")[1].split()[0]
                             if client_id == self.last_connected_client:
                                 name_match = re.search(r"\\name\\([^\\]+)", line)
-                                if name_match:
+                                if name_match and "Padawan" not in name_match.group(1):
                                     player_name = self.remove_color_codes(name_match.group(1))
                                     self.client_names[client_id] = (player_name, None)
                                     print(f"ClientUserinfoChanged handling info: Added {client_id}: ({player_name}, None) to client_names")
+                                    await self.fetch_player_data()
                                     name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
                                     join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                                     if channel and not name.endswith("-Bot"):
@@ -406,10 +393,11 @@ class JKChatBridge(commands.Cog):
                             client_id = line.split("ClientUserinfoChanged: ")[1].split()[0]
                             if client_id == self.last_connected_client:
                                 name_match = re.search(r"n\\([^\\]+)", line)
-                                if name_match:
+                                if name_match and "Padawan" not in name_match.group(1):
                                     player_name = self.remove_color_codes(name_match.group(1))
                                     self.client_names[client_id] = (player_name, None)
                                     print(f"ClientUserinfoChanged: Added {client_id}: ({player_name}, None) to client_names")
+                                    await self.fetch_player_data()
                                     name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
                                     join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                                     if channel and not name.endswith("-Bot"):
@@ -428,7 +416,6 @@ class JKChatBridge(commands.Cog):
                                         break
                         elif "ClientDisconnect:" in line:
                             client_id = line.split("ClientDisconnect: ")[1].strip()
-                            # Use the original name from client_names, falling back to Unknown (ID X)
                             name, _ = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
                             leave_message = f"<:jk_disconnect:1349010016044187713> **{name}** has disconnected."
                             if channel and not name.endswith("-Bot"):
