@@ -83,16 +83,22 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
             )
             playerlist_lines = playerlist_response.decode(errors='replace').splitlines()
+            print("Full playerlist response:", "\n".join(playerlist_lines))  # Debug full response
 
             for line in playerlist_lines:
                 parts = re.split(r"\s+", line.strip())
-                if len(parts) >= 12 and parts[0].isdigit():  # Ensure it's a player line with enough fields
-                    client_id = parts[0]
+                print(f"Playerlist line parts: {parts}")  # Debug each line's split
+                if len(parts) >= 12 and parts[0].startswith("^") and parts[1].isdigit():  # Adjusted for Lugormod format
+                    client_id = parts[1]  # Second field is client ID after color code
                     username = parts[-1] if parts[-1] != "0" else None
                     if client_id in self.client_names:
                         name, _ = self.client_names[client_id]
                         self.client_names[client_id] = (name, username)
                         print(f"Playerlist update: Client {client_id} - Name: {name}, Username: {username}")
+                    else:
+                        print(f"Client ID {client_id} from playerlist not found in self.client_names")
+                else:
+                    print(f"Skipping line, insufficient parts or invalid format: {line}")
         except Exception as e:
             print(f"Error updating usernames from playerlist: {e}")
 
@@ -226,7 +232,6 @@ class JKChatBridge(commands.Cog):
                         current_username = self.client_names.get(client_id, (None, None))[1]
                         self.client_names[client_id] = (player_name, current_username)
 
-            # Build player list with usernames in brackets
             players = [(cid, f"{self.client_names[cid][0]}({self.client_names[cid][1] or 'None'})") 
                        for cid in online_client_ids if cid in self.client_names]
             player_list = "No players online"
