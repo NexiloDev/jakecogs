@@ -423,7 +423,22 @@ class JKChatBridge(commands.Cog):
         # Convert standard Unicode emojis to their corresponding text emotes
         emoji_to_text_map = {
             "😊": ":)", "😄": ":D", "😂": "XD", "🤣": "xD", "😉": ";)", "😛": ":P", "😢": ":(",
-            "😡": ">:(", "👍": ":+1:", "👎": ":-1:", "❤️": "<3", "💖": "<3", "😍": ":*", "🙂": ":)", "😣": ":S", "😜": ";P"
+            "😡": ">:(", "👍": ":+1:", "👎": ":-1:", "❤️": "<3", "💖": "<3", "😍": ":*", "🙂": ":)", "😣": ":S", "😜": ";P",
+            "😮": ":o",  # Astonished Face
+            "😁": "=D",  # Grinning Face with Smiling Eyes
+            "😆": "xD",  # Laughing Face (shares mapping with 🤣)
+            "😳": "O.o",  # Flushed Face
+            "🤓": "B)",  # Nerd Face
+            "😴": "-_-",  # Sleeping Face
+            "😅": "^^;",  # Smiling Face with Sweat
+            "😒": ":/",  # Unamused Face
+            "😘": ":*",  # Face Blowing a Kiss (shares mapping with 😍)
+            "😎": "8)",  # Sunglasses Face
+            "😱": "D:",  # Face Screaming in Fear
+            "🤔": ":?",  # Thinking Face
+            "🥳": "\\o/",  # Partying Face
+            "🤗": ">^.^<",  # Hugging Face
+            "🤪": ":p"  # Zany Face
         }
         for emoji, text_emote in emoji_to_text_map.items():
             text = text.replace(emoji, text_emote)
@@ -434,7 +449,20 @@ class JKChatBridge(commands.Cog):
         # Map text emotes to their emoji equivalents using a loop
         text_emote_map = {
             ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
-            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣"
+            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣", ";P": "😜",
+            ":o": "😮",  # Astonished Face
+            "=D": "😁",  # Grinning Face with Smiling Eyes
+            "O.o": "😳",  # Flushed Face
+            "B)": "🤓",  # Nerd Face
+            "-_-": "😴",  # Sleeping Face
+            "^^;": "😅",  # Smiling Face with Sweat
+            ":/": "😒",  # Unamused Face
+            "8)": "😎",  # Sunglasses Face
+            "D:": "😱",  # Face Screaming in Fear
+            ":?": "🤔",  # Thinking Face
+            "\\o/": "🥳",  # Partying Face
+            ">^.^<": "🤗",  # Hugging Face
+            ":p": "🤪"  # Zany Face
         }
         for text_emote, emoji in text_emote_map.items():
             text = text.replace(text_emote, emoji)
