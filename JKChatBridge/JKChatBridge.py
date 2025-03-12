@@ -56,10 +56,11 @@ class JKChatBridge(commands.Cog):
             self.client_names.clear()
             for line in playerlist_lines:
                 parts = re.split(r"\s+", line.strip())
-                if len(parts) >= 7 and parts[0].startswith("^"):  # Color code + name + stats + username
+                if len(parts) >= 6 and parts[0].startswith("^"):  # Color code + name + 4 stats (optional username)
                     client_id = self.remove_color_codes(parts[0])  # First field is color-coded client ID
                     player_name = self.remove_color_codes(parts[1])  # Second field is name
-                    username = parts[-1] if parts[-1] != "0" else None  # Last field is username
+                    # Last field is username if non-numeric, otherwise None
+                    username = parts[-1] if parts[-1].isalpha() or not parts[-1].isdigit() else None
                     self.client_names[client_id] = (player_name, username)
                 else:
                     print(f"Skipping line, insufficient parts or invalid format: {line}")
@@ -192,8 +193,8 @@ class JKChatBridge(commands.Cog):
                 elif "players :" in line:
                     player_count = line.split("players :")[1].strip()
 
-            # Use self.client_names for player list
-            players = [(cid, f"{self.client_names[cid][0]}({self.client_names[cid][1] or 'None'})") 
+            # Use self.client_names for player list, empty parentheses if no username
+            players = [(cid, f"{self.client_names[cid][0]}{'(' + self.client_names[cid][1] + ')' if self.client_names[cid][1] else ''}") 
                        for cid in self.client_names.keys()]
             player_list = "No players online"
             if players:
