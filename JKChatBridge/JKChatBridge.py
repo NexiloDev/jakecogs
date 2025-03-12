@@ -28,7 +28,8 @@ class JKChatBridge(commands.Cog):
     - `!jkexec <filename>`: Execute a server config file (Bot Owners/Admins only).
     - `!jkkill <player>`: Kill a player (Bot Owners/Admins only).
     - `!jkkick <player>`: Kick a player (Bot Owners/Admins only).
-    - `!jknextmap`: Call and pass a vote for the next map (JKA Server Admin, Bot Owners, Admins).
+    - `!jknextmap`: Call a vote for the next map (JKA Server Admin, Bot Owners, Admins).
+    - `!jkpassvote`: Pass the active vote (JKA Server Admin, Bot Owners, Admins).
     - `!jkchpasswd <player> <newpassword>`: Change a player's password (Bot Owners/Admins only).
     - `!jkbridge`: Configure the cog (Bot Owner only).
     """
@@ -363,10 +364,16 @@ class JKChatBridge(commands.Cog):
                         elif "ClientUserinfoChanged" in line and self.last_connected_client:
                             client_id = line.split("ClientUserinfoChanged")[1].split(": ")[1].split()[0]
                             if client_id == self.last_connected_client and "Padawan" not in line:
-                                name = self.remove_color_codes(re.search(r"(\\name\\|n\\)([^\\]+)", line).group(2))
-                                self.client_names[client_id] = (name, None)
-                                if not name.endswith("-Bot"):
-                                    await channel.send(f"<:jk_connect:1349009924306374756> **{name}** has joined the game!")
+                                name_match = re.search(r"(\\name\\|n\\)([^\\]+)", line)
+                                if name_match:
+                                    name = self.remove_color_codes(name_match.group(2))
+                                    # Filter out "snaps" as a player name
+                                    if name.lower() == "snaps":
+                                        self.last_connected_client = None
+                                        continue
+                                    self.client_names[client_id] = (name, None)
+                                    if not name.endswith("-Bot"):
+                                        await channel.send(f"<:jk_connect:1349009924306374756> **{name}** has joined the game!")
                                 self.last_connected_client = None
                         elif "has logged in" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged in', line)
@@ -485,7 +492,7 @@ class JKChatBridge(commands.Cog):
     @commands.command(name="jknextmap")
     @is_jka_server_staff_or_higher()
     async def jknextmap(self, ctx):
-        """Call and pass a vote for the next map.
+        """Call a vote for the next map.
 
         **Usage:** `!jknextmap`
         """
@@ -497,15 +504,32 @@ class JKChatBridge(commands.Cog):
             await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "callvote nextmap", rcon_host, rcon_port, rcon_password
             )
-            await asyncio.sleep(2)  # Increased delay from 0.5 to 2 seconds
+            await ctx.send("Vote for next map has been called. Use !jkpassvote to pass the vote.")
+            await self.log_action(f"{ctx.author.name} called a vote for nextmap")
+        except Exception as e:
+            await ctx.send(f"Failed to call nextmap vote: {e}")
+            await self.log_action(f"Error: Failed to call nextmap vote - {e}")
+
+    @commands.command(name="jkpassvote")
+    @is_jka_server_staff_or_higher()
+    async def jkpassvote(self, ctx):
+        """Pass the active vote.
+
+        **Usage:** `!jkpassvote`
+        """
+        is_valid, (rcon_host, rcon_port, rcon_password) = await self.validate_rcon_settings()
+        if not is_valid:
+            await ctx.send("RCON settings not fully configured.")
+            return
+        try:
             await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "passvote", rcon_host, rcon_port, rcon_password
             )
-            await ctx.send("Loading next map.")  # Updated message
-            await self.log_action(f"{ctx.author.name} called and passed nextmap vote")
+            await ctx.send("Loading next map.")
+            await self.log_action(f"{ctx.author.name} passed the active vote")
         except Exception as e:
-            await ctx.send(f"Failed to call/pass nextmap vote: {e}")
-            await self.log_action(f"Error: Failed to call/pass nextmap vote - {e}")
+            await ctx.send(f"Failed to pass the vote: {e}")
+            await self.log_action(f"Error: Failed to pass the vote - {e}")
 
     @commands.command(name="jkchpasswd")
     @commands.is_owner()
