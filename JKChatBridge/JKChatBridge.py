@@ -232,25 +232,27 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, command, rcon_host, rcon_port, rcon_password
             )
             response_text = response.decode(errors='replace')
-            print(f"Raw RCON response for 'accountinfo {username}':\n{response_text}")  # Debug log
+            print(f"Raw RCON response for 'accountinfo {username}':\n{response_text}")
             response_lines = response_text.splitlines()
         except Exception as e:
             print(f"Error fetching RCON response: {e}")
             await ctx.send(f"Failed to retrieve player info: {e}")
             return
 
-        # Parse response, skipping timestamp lines
+        # Parse response, removing color codes from keys and values
         stats = {}
         timestamp_pattern = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}')
         for line in response_lines:
-            if timestamp_pattern.match(line.strip()):
-                continue  # Skip timestamp lines
+            line = line.strip()
+            if timestamp_pattern.match(line) or line.startswith('\xff\xff\xff\xffprint'):
+                continue  # Skip timestamp lines and initial print marker
             if ":" in line:
                 key, value = map(str.strip, line.split(":", 1))
-                if key and value:  # Only add if both key and value are non-empty
-                    stats[key] = value
+                clean_key = self.remove_color_codes(key)
+                clean_value = self.remove_color_codes(value)
+                if clean_key and clean_value:  # Only add if both are non-empty
+                    stats[clean_key] = clean_value
 
-        # Debug parsed stats
         print(f"Parsed stats: {stats}")
 
         # Check if player exists by looking for 'Id' or 'Username'
