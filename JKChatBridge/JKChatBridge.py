@@ -55,15 +55,23 @@ class JKChatBridge(commands.Cog):
 
             self.client_names.clear()
             for line in playerlist_lines:
+                # Skip known non-player lines
+                if "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
+                    print(f"Skipping non-player line: {line}")
+                    continue
+
                 parts = re.split(r"\s+", line.strip())
-                if len(parts) >= 6 and parts[0].startswith("^"):  # Color code + name + 4 stats (optional username)
+                if (len(parts) >= 6 and 
+                    parts[0].startswith("^") and 
+                    self.remove_color_codes(parts[0]).isdigit()):  # Ensure client_id is numeric
                     client_id = self.remove_color_codes(parts[0])  # First field is color-coded client ID
                     player_name = self.remove_color_codes(parts[1])  # Second field is name
                     # Last field is username if non-numeric, otherwise None
                     username = parts[-1] if parts[-1].isalpha() or not parts[-1].isdigit() else None
+                    print(f"Adding to client_names: {client_id}: ({player_name}, {username})")
                     self.client_names[client_id] = (player_name, username)
                 else:
-                    print(f"Skipping line, insufficient parts or invalid format: {line}")
+                    print(f"Skipping line, insufficient parts or invalid client ID: {line}")
             print(f"Updated self.client_names: {self.client_names}")
         except Exception as e:
             print(f"Error fetching player data from playerlist: {e}")
