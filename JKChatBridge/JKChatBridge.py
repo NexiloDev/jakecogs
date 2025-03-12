@@ -260,16 +260,10 @@ class JKChatBridge(commands.Cog):
             await ctx.send(f"Player '{username}' not found.")
             return
 
-        # Calculate W/L ratio (mirroring K/D logic)
+        # Calculate duels lost
         wins = int(stats.get("Duels won", "0"))
         total_duels = int(stats.get("Total duels", "0"))
         losses = max(0, total_duels - wins)  # Ensure no negative losses
-        w_l_ratio = wins / losses if losses > 0 else wins if wins > 0 else 0.0
-
-        # Calculate K/D ratio
-        kills = int(stats.get("Kills", "0"))
-        deaths = int(stats.get("Deaths", "0"))
-        kd_ratio = kills / deaths if deaths > 0 else kills if kills > 0 else 0.0
 
         # Format playtime (hours only)
         playtime = stats.get("Time", "N/A")
@@ -293,8 +287,9 @@ class JKChatBridge(commands.Cog):
         embed.add_field(name="💰 Credits", value=stats.get("Credits", "N/A"), inline=True)
         embed.add_field(name="💼 Stashes", value=stats.get("Stashes", "N/A"), inline=True)
         embed.add_field(name="🏆 Duel Score", value=stats.get("Score", "N/A"), inline=True)
-        embed.add_field(name="⚔️ Duel W/L Ratio", value=f"{w_l_ratio:.2f}", inline=True)
-        embed.add_field(name="🗡️ K/D Ratio", value=f"{kd_ratio:.2f}", inline=True)
+        embed.add_field(name="⚔️ Duels Won", value=str(wins), inline=True)
+        embed.add_field(name="⚔️ Duels Lost", value=str(losses), inline=True)
+        embed.add_field(name="🗡️ Total Kills", value=stats.get("Kills", "0"), inline=True)
 
         # Set footer with Last Login
         last_login = stats.get("Last login", "N/A")
