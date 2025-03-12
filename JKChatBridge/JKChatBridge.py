@@ -70,7 +70,7 @@ class JKChatBridge(commands.Cog):
             print(f"Error fetching initial player data: {e}")
 
     async def update_usernames_from_playerlist(self):
-        """Update usernames in self.client_names from rcon playerlist."""
+        """Update usernames in self.client_names from rcon playerlist by matching names."""
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
@@ -83,20 +83,22 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
             )
             playerlist_lines = playerlist_response.decode(errors='replace').splitlines()
-            print("Full playerlist response:", "\n".join(playerlist_lines))  # Debug full response
+            print("Full playerlist response:", "\n".join(playerlist_lines))
 
             for line in playerlist_lines:
                 parts = re.split(r"\s+", line.strip())
-                print(f"Playerlist line parts: {parts}")  # Debug each line's split
-                if len(parts) >= 12 and parts[0].startswith("^") and parts[1].isdigit():  # Adjusted for Lugormod format
-                    client_id = parts[1]  # Second field is client ID after color code
-                    username = parts[-1] if parts[-1] != "0" else None
-                    if client_id in self.client_names:
-                        name, _ = self.client_names[client_id]
-                        self.client_names[client_id] = (name, username)
-                        print(f"Playerlist update: Client {client_id} - Name: {name}, Username: {username}")
+                print(f"Playerlist line parts: {parts}")
+                if len(parts) >= 6 and parts[0].startswith("^"):  # Color code + name + stats + username
+                    player_name = self.remove_color_codes(parts[1])  # Name is second field
+                    username = parts[-1] if parts[-1] != "0" else None  # Username is last field
+                    # Match name to client_id in self.client_names
+                    for client_id, (stored_name, _) in self.client_names.items():
+                        if stored_name == player_name:
+                            self.client_names[client_id] = (stored_name, username)
+                            print(f"Playerlist update: Client {client_id} - Name: {stored_name}, Username: {username}")
+                            break
                     else:
-                        print(f"Client ID {client_id} from playerlist not found in self.client_names")
+                        print(f"No match found for player name: {player_name}")
                 else:
                     print(f"Skipping line, insufficient parts or invalid format: {line}")
         except Exception as e:
