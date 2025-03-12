@@ -362,7 +362,7 @@ class JKChatBridge(commands.Cog):
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
         # Get the bot's command prefix
-        prefix = self.bot.command_prefix(self.bot, message)
+        prefix = await self.bot.command_prefix(self.bot, message)
         if isinstance(prefix, (tuple, list)):
             prefix = prefix[0]
         else:
