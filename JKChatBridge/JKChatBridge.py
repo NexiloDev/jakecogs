@@ -67,7 +67,7 @@ class JKChatBridge(commands.Cog):
                     player_name = self.remove_color_codes(parts[1])
                     username = parts[-1] if parts[-1].isalpha() or not parts[-1].isdigit() else None
                     temp_client_names[client_id] = (player_name, username)
-            # Only update existing entries or add new ones if not already set
+            # Only update existing entries or add new ones if not already set from log
             for client_id, (name, username) in temp_client_names.items():
                 if client_id not in self.client_names or self.client_names[client_id][1]:  # Update if no username or already logged in
                     self.client_names[client_id] = (name, username)
@@ -75,7 +75,6 @@ class JKChatBridge(commands.Cog):
         except Exception as e:
             print(f"Error fetching player data from playerlist: {e}")
 
-    ### Command Group: jkbridge
     @commands.group(name="jkbridge", aliases=["jk"])
     @commands.is_owner()
     async def jkbridge(self, ctx):
@@ -164,7 +163,6 @@ class JKChatBridge(commands.Cog):
         await self.fetch_player_data(ctx)
         await ctx.send("Log monitoring task and player data reloaded.")
 
-    ### Command: jkstatus
     @commands.command(name="jkstatus")
     async def status(self, ctx):
         """Display detailed server status with emojis. Accessible to all users."""
@@ -218,7 +216,6 @@ class JKChatBridge(commands.Cog):
             print(f"Error fetching server status: {e}")
             await ctx.send(f"Failed to retrieve server status: {e}")
 
-    ### Command: jkplayer
     @commands.command(name="jkplayer")
     async def player_info(self, ctx, username: str):
         """Display player stats for the given username."""
@@ -234,20 +231,30 @@ class JKChatBridge(commands.Cog):
             response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, command, rcon_host, rcon_port, rcon_password
             )
-            response_lines = response.decode(errors='replace').splitlines()
+            response_text = response.decode(errors='replace')
+            print(f"Raw RCON response for 'accountinfo {username}':\n{response_text}")  # Debug log
+            response_lines = response_text.splitlines()
         except Exception as e:
+            print(f"Error fetching RCON response: {e}")
             await ctx.send(f"Failed to retrieve player info: {e}")
             return
 
+        # Parse response, skipping timestamp lines
         stats = {}
+        timestamp_pattern = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}')
         for line in response_lines:
+            if timestamp_pattern.match(line.strip()):
+                continue  # Skip timestamp lines
             if ":" in line:
-                key, value = line.split(":", 1)
-                key = key.strip()
-                value = value.strip()
-                stats[key] = value
+                key, value = map(str.strip, line.split(":", 1))
+                if key and value:  # Only add if both key and value are non-empty
+                    stats[key] = value
 
-        if "Id" not in stats:
+        # Debug parsed stats
+        print(f"Parsed stats: {stats}")
+
+        # Check if player exists by looking for 'Id' or 'Username'
+        if "Id" not in stats and "Username" not in stats:
             await ctx.send(f"Player '{username}' not found.")
             return
 
@@ -282,7 +289,6 @@ class JKChatBridge(commands.Cog):
 
         await ctx.send(embed=embed)
 
-    ### Listener: on_message
     @commands.Cog.listener()
     async def on_message(self, message):
         """Handle messages from Discord and send them to the game server via RCON."""
@@ -294,19 +300,19 @@ class JKChatBridge(commands.Cog):
             prefix = prefix[0]
         else:
             prefix = str(prefix)
-        # Command filtering is commented out
+        # Command filtering is commented out as per request
         # content = message.content.lower().strip()
         # if any(content == f"{prefix}{cmd}" for cmd in self.filtered_commands):
         #     print(f"Skipping RCON for command: {content}")
         #     return
         discord_username = message.author.display_name
-
+        
         discord_username = discord_username.replace("’", "'").replace("‘", "'")
         discord_username = discord_username.replace("“", "\"").replace("”", "\"")
         discord_username = discord_username.replace("«", "\"").replace("»", "\"")
         discord_username = discord_username.replace("–", "-").replace("—", "-")
         discord_username = discord_username.replace("…", "...")
-
+        
         message_content = message.content
         message_content = message_content.replace("’", "'").replace("‘", "'")
         message_content = message_content.replace("“", "\"").replace("”", "\"")
@@ -323,7 +329,7 @@ class JKChatBridge(commands.Cog):
         initial_prefix = f"say ^5{{D}}^7{discord_username}^2: "
         continuation_prefix = "say "
         max_length = 115
-
+        
         chunks = []
         remaining = message_content
         is_first_chunk = True
@@ -347,7 +353,7 @@ class JKChatBridge(commands.Cog):
             print("RCON settings not fully configured.")
             await message.channel.send("RCON settings not fully configured. Please contact an admin.")
             return
-
+        
         try:
             for i, chunk in enumerate(chunks):
                 if i == 0:
@@ -361,7 +367,6 @@ class JKChatBridge(commands.Cog):
             print(f"Error sending RCON command: {e}")
             await message.channel.send(f"Failed to send to game: {e}")
 
-    ### Helper Methods
     def replace_emojis_with_names(self, text):
         """Replace custom Discord emojis with :name: and remove standard Unicode emojis."""
         for emoji in self.bot.emojis:
@@ -532,7 +537,6 @@ class JKChatBridge(commands.Cog):
         self.executor.shutdown(wait=False)
         print("JKChatBridge cog unloaded.")
 
-### Setup Function
 async def setup(bot):
     cog = JKChatBridge(bot)
     await bot.add_cog(cog)
