@@ -328,23 +328,26 @@ class JKChatBridge(commands.Cog):
 
     ### Log Monitoring
     async def monitor_log(self):
-        """Monitor the latest Lugormod log file and send messages to Discord."""
+        """Monitor game logs and send events to Discord."""
         self.monitoring = True
-        try:
-            while self.monitoring:
-                log_base_path = await self.config.log_base_path()
-                channel_id = await self.config.discord_channel_id()
-                custom_emoji = await self.config.custom_emoji()
-                if not log_base_path or not channel_id or not custom_emoji:
-                    await asyncio.sleep(5)
-                    continue
-                channel = self.bot.get_channel(channel_id)
-                now = datetime.now()
-                # Use strings without leading zeros for month and day
-                current_date = f"{now.month}-{now.day}-{now.year}"
-                log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
-                async with aiofiles.open(log_file_path, mode='r') as f:
-                    await f.seek(0, 2)  # Go to the end of the file
+        while self.monitoring:
+            log_base_path = await self.config.log_base_path()
+            channel_id = await self.config.discord_channel_id()
+            custom_emoji = await self.config.custom_emoji()
+            if not all([log_base_path, channel_id, custom_emoji]):
+                await asyncio.sleep(5)
+                continue
+            channel = self.bot.get_channel(channel_id)
+            # Remove leading zeros from month and day
+            now = datetime.now()
+            month = str(now.month)
+            day = str(now.day)
+            year = str(now.year)
+            current_date = f"{month}-{day}-{year}"
+            log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
+            try:
+                async with aiofiles.open(log_file_path, 'r') as f:
+                    await f.seek(0, 2)  # Start at the end of the file
                     while self.monitoring:
                         line = await f.readline()
                         if not line:
@@ -353,62 +356,46 @@ class JKChatBridge(commands.Cog):
                         line = line.strip()
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
-                            if player_name and message:
-                                if self.url_pattern.search(message):
-                                    continue
-                                message = self.replace_text_emotes_with_emojis(message)
-                                discord_message = f"{custom_emoji} **{player_name}**: {message}"
-                                if channel:
-                                    await channel.send(discord_message)
+                            if player_name and message and not self.url_pattern.search(message):
+                                await channel.send(f"{custom_emoji} **{player_name}**: {self.replace_text_emotes_with_emojis(message)}")
                         elif "ClientConnect:" in line:
                             self.last_connected_client = line.split("ClientConnect: ")[1].strip()
-                        elif ("ClientUserinfoChanged handling info:" in line or "ClientUserinfoChanged:" in line) and self.last_connected_client:
+                        elif "ClientUserinfoChanged" in line and self.last_connected_client:
                             client_id = line.split("ClientUserinfoChanged")[1].split(": ")[1].split()[0]
-                            if client_id == self.last_connected_client:
-                                name_match = re.search(r"(\\name\\|n\\)([^\\]+)", line)
-                                if name_match and "Padawan" not in name_match.group(2):
-                                    player_name = self.remove_color_codes(name_match.group(2))
-                                    self.client_names[client_id] = (player_name, None)
-                                    name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
-                                    join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
-                                    if channel and not name.endswith("-Bot"):
-                                        await channel.send(join_message)
-                                    self.last_connected_client = None
-                        elif "Player" in line and "has logged in" in line:
+                            if client_id == self.last_connected_client and "Padawan" not in line:
+                                name = self.remove_color_codes(re.search(r"(\\name\\|n\\)([^\\]+)", line).group(2))
+                                self.client_names[client_id] = (name, None)
+                                if not name.endswith("-Bot"):
+                                    await channel.send(f"<:jk_connect:1349009924306374756> **{name}** has joined the game!")
+                                self.last_connected_client = None
+                        elif "has logged in" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged in', line)
                             if match:
-                                player_name = self.remove_color_codes(match.group(1))
-                                username = match.group(2)
-                                for cid, (name, _) in self.client_names.items():
-                                    if name == player_name:
-                                        self.client_names[cid] = (player_name, username)
+                                name, username = self.remove_color_codes(match.group(1)), match.group(2)
+                                for cid, (n, _) in self.client_names.items():
+                                    if n == name:
+                                        self.client_names[cid] = (name, username)
                                         break
-                            await self.fetch_player_data()
-                        elif "Player" in line and "has logged out" in line:
+                                await self.fetch_player_data()
+                        elif "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
                             if match:
-                                player_name = self.remove_color_codes(match.group(1))
-                                for cid, (name, _) in self.client_names.items():
-                                    if name == player_name:
-                                        self.client_names[cid] = (name, None)
+                                name = self.remove_color_codes(match.group(1))
+                                for cid, (n, _) in self.client_names.items():
+                                    if n == name:
+                                        self.client_names[cid] = (n, None)
                                         break
                         elif "ClientDisconnect:" in line:
                             client_id = line.split("ClientDisconnect: ")[1].strip()
-                            name, _ = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
-                            leave_message = f"<:jk_disconnect:1349010016044187713> **{name}** has disconnected."
-                            if channel and not name.endswith("-Bot"):
-                                await channel.send(leave_message)
-                            if client_id in self.client_names:
-                                del self.client_names[client_id]
+                            name, _ = self.client_names.pop(client_id, (f"Unknown (ID {client_id})", None))
+                            if not name.endswith("-Bot"):
+                                await channel.send(f"<:jk_disconnect:1349010016044187713> **{name}** has disconnected.")
                         elif "duel:" in line and "won a duel against" in line:
-                            parts = line.split("duel:")[1].split("won a duel against")
-                            if len(parts) == 2 and channel:
-                                winner = self.remove_color_codes(parts[0].strip())
-                                loser = self.remove_color_codes(parts[1].strip())
-                                await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
-        except Exception as e:
-            await self.log_action(f"Error in monitor_log: {e}")
-            await asyncio.sleep(5)
+                            winner, loser = map(self.remove_color_codes, line.split("duel:")[1].split("won a duel against"))
+                            await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner.strip()}** won a duel against **{loser.strip()}**!")
+            except Exception as e:
+                await self.log_action(f"Error in monitor_log: {e}")
+                await asyncio.sleep(5)
 
     def start_monitoring(self):
         """Start the log monitoring task."""
