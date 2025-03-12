@@ -38,7 +38,7 @@ class JKChatBridge(commands.Cog):
         await self.fetch_initial_player_data()
 
     async def fetch_initial_player_data(self):
-        """Fetch player names from rcon status and usernames from rcon playerlist on cog load/reload."""
+        """Fetch player names from rcon status on cog load/reload."""
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
@@ -47,7 +47,6 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
-            # Fetch status for names and IDs
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", rcon_host, rcon_port, rcon_password
             )
@@ -60,25 +59,8 @@ class JKChatBridge(commands.Cog):
                     if len(parts) >= 4:
                         client_id = parts[0]
                         player_name = self.remove_color_codes(parts[3].strip())
-                        self.client_names[client_id] = (player_name, None)  # Username starts as None
+                        self.client_names[client_id] = (player_name, None)
                         print(f"Initial status update: Client {client_id} - Name: {player_name}, Username: None")
-
-            # Fetch playerlist to update usernames
-            playerlist_response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
-            )
-            playerlist_lines = playerlist_response.decode(errors='replace').splitlines()
-
-            for line in playerlist_lines:
-                match = re.match(r'^(\d+)\s+(.*?)\s+(\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\w+)$', line.strip())
-                if match:
-                    client_id = match.group(1)
-                    if client_id in self.client_names:
-                        parts = match.group(3).split()
-                        username = parts[-1] if parts[-1] != "0" else None
-                        name, _ = self.client_names[client_id]
-                        self.client_names[client_id] = (name, username)
-                        print(f"Initial playerlist update: Client {client_id} - Name: {name}, Username: {username}")
             print(f"Updated self.client_names after initial fetch: {self.client_names}")
         except Exception as e:
             print(f"Error fetching initial player data: {e}")
@@ -184,13 +166,11 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
-            # Send 'status' command via RCON
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", rcon_host, rcon_port, rcon_password
             )
             status_lines = status_response.decode(errors='replace').splitlines()
 
-            # Parse status response
             server_name = "Unknown"
             mod_name = "Unknown"
             map_name = "Unknown"
@@ -212,18 +192,15 @@ class JKChatBridge(commands.Cog):
                         client_id = parts[0]
                         player_name = self.remove_color_codes(parts[3].strip())
                         online_client_ids.append(client_id)
-                        # Update self.client_names with name, preserving username if it exists
                         current_username = self.client_names.get(client_id, (None, None))[1]
                         self.client_names[client_id] = (player_name, current_username)
 
-            # Build player list
             players = [(cid, self.client_names[cid][0]) for cid in online_client_ids if cid in self.client_names]
             player_list = "No players online"
             if players:
                 player_lines = [f"{client_id:<3} {name}" for client_id, name in players]
                 player_list = "```\n" + "\n".join(player_lines) + "\n```"
 
-            # Create embed
             embed = discord.Embed(
                 title=f"🌌 {server_name} 🌌",
                 color=discord.Color.gold(),
@@ -387,6 +364,7 @@ class JKChatBridge(commands.Cog):
                             await asyncio.sleep(0.1)
                             continue
                         line = line.strip()
+                        print(f"Log line: {line}")  # Debug: Print every log line
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
@@ -403,15 +381,23 @@ class JKChatBridge(commands.Cog):
                         elif "ClientUserinfoChanged handling info:" in line:
                             client_id = line.split("ClientUserinfoChanged handling info: ")[1].split()[0]
                             name_match = re.search(r'\\name\\([^\\]+)', line)
-                            username_match = re.search(r'\\username\\([^\\]+)', line)
                             if name_match:
                                 player_name = self.remove_color_codes(name_match.group(1))
-                                username = username_match.group(1) if username_match else None
-                                self.client_names[client_id] = (player_name, username)
-                                print(f"Updated name for client {client_id}: {player_name}, Username: {username}")
-                                # If username is provided, fetch playerlist to cross-reference
-                                if username:
-                                    await self.update_usernames_from_playerlist()
+                                current_username = self.client_names.get(client_id, (None, None))[1]
+                                self.client_names[client_id] = (player_name, current_username)
+                                print(f"Updated name for client {client_id}: {player_name}, Username: {current_username}")
+                        elif "Player" in line and "has logged in" in line:
+                            match = re.match(r'Player "(.*?)" \((.*?)\) has logged in\.', line)
+                            if match:
+                                player_name = self.remove_color_codes(match.group(1))
+                                username = match.group(2)
+                                for cid, (name, _) in self.client_names.items():
+                                    if name == player_name:
+                                        self.client_names[cid] = (name, username)
+                                        print(f"Updated username for client {cid}: {name}, Username: {username}")
+                                        break
+                            else:
+                                print(f"Failed to match login line: {line}")
                         elif "ClientBegin:" in line:
                             client_id = line.split("ClientBegin: ")[1].strip()
                             name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
@@ -446,35 +432,6 @@ class JKChatBridge(commands.Cog):
                 print(f"Log monitoring error: {e}")
                 await asyncio.sleep(5)
         print("Log monitoring task stopped.")
-
-    async def update_usernames_from_playerlist(self):
-        """Update usernames in self.client_names from rcon playerlist."""
-        rcon_host = await self.config.rcon_host()
-        rcon_port = await self.config.rcon_port()
-        rcon_password = await self.config.rcon_password()
-        if not all([rcon_host, rcon_port, rcon_password]):
-            print("RCON settings not fully configured. Skipping playerlist update.")
-            return
-
-        try:
-            playerlist_response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
-            )
-            playerlist_lines = playerlist_response.decode(errors='replace').splitlines()
-
-            for line in playerlist_lines:
-                match = re.match(r'^(\d+)\s+(.*?)\s+(\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\w+)$', line.strip())
-                if match:
-                    client_id = match.group(1)
-                    if client_id in self.client_names:
-                        parts = match.group(3).split()
-                        username = parts[-1] if parts[-1] != "0" else None
-                        name, _ = self.client_names[client_id]
-                        self.client_names[client_id] = (name, username)
-                        print(f"Playerlist update: Client {client_id} - Name: {name}, Username: {username}")
-            print(f"Updated self.client_names after playerlist: {self.client_names}")
-        except Exception as e:
-            print(f"Error updating usernames from playerlist: {e}")
 
     def start_monitoring(self):
         if not self.monitor_task or self.monitor_task.done():
