@@ -497,11 +497,11 @@ class JKChatBridge(commands.Cog):
             await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "callvote nextmap", rcon_host, rcon_port, rcon_password
             )
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(2)  # Increased delay from 0.5 to 2 seconds
             await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "passvote", rcon_host, rcon_port, rcon_password
             )
-            await ctx.send("Vote for next map has been called and passed.")
+            await ctx.send("Loading next map.")  # Updated message
             await self.log_action(f"{ctx.author.name} called and passed nextmap vote")
         except Exception as e:
             await ctx.send(f"Failed to call/pass nextmap vote: {e}")
