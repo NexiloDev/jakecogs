@@ -402,6 +402,20 @@ class JKChatBridge(commands.Cog):
                         elif "Player" in line and "has logged in" in line:
                             await self.fetch_player_data()  # Update with playerlist on login
                             print(f"Player logged in, refreshed player data: {self.client_names}")
+                        elif "Player" in line and "has logged out" in line:
+                            # Parse logout line: Player "<name>" (<username>) has logged out
+                            match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
+                            if match:
+                                player_name = self.remove_color_codes(match.group(1))
+                                username = match.group(2)
+                                # Find the client ID by matching the name
+                                for cid, (name, stored_username) in self.client_names.items():
+                                    if name == player_name:
+                                        self.client_names[cid] = (name, None)  # Remove username
+                                        print(f"Player logged out: Updated {cid}: ({name}, None)")
+                                        break
+                            else:
+                                print(f"Could not parse logout line: {line}")
                         elif "ClientDisconnect:" in line:
                             client_id = line.split("ClientDisconnect: ")[1].strip()
                             name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
