@@ -39,6 +39,8 @@ class JKChatBridge(commands.Cog):
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
         )
+        # List of commands to filter out from being sent to the game
+        self.filtered_commands = {"jkstatus", "jkbridge", "jk"}
         # Start monitoring the game log file for chat and events
         self.start_monitoring()
 
@@ -46,20 +48,13 @@ class JKChatBridge(commands.Cog):
         """Run after the bot is fully ready to fetch initial player data."""
         await self.fetch_player_data()
 
-    async def validate_rcon_settings(self):
-        """Check if RCON settings are fully configured."""
+    async def fetch_player_data(self, ctx=None):
+        """Fetch player data (ID, name, username) from the game server using the RCON 'playerlist' command."""
+        # Get RCON settings from the config
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
         if not all([rcon_host, rcon_port, rcon_password]):
-            return False, (rcon_host, rcon_port, rcon_password)
-        return True, (rcon_host, rcon_port, rcon_password)
-
-    async def fetch_player_data(self, ctx=None):
-        """Fetch player data (ID, name, username) from the game server using the RCON 'playerlist' command."""
-        # Get RCON settings from the config
-        is_valid, (rcon_host, rcon_port, rcon_password) = await self.validate_rcon_settings()
-        if not is_valid:
             return  # Can't proceed without RCON settings
 
         # Skip RCON command if called from a command context (e.g., jkstatus)
@@ -186,9 +181,11 @@ class JKChatBridge(commands.Cog):
     @commands.command(name="jkstatus")
     async def status(self, ctx):
         """Display detailed server status with emojis. Accessible to all users."""
-        # Validate RCON settings
-        is_valid, (rcon_host, rcon_port, rcon_password) = await self.validate_rcon_settings()
-        if not is_valid:
+        # Get RCON settings
+        rcon_host = await self.config.rcon_host()
+        rcon_port = await self.config.rcon_port()
+        rcon_password = await self.config.rcon_password()
+        if not all([rcon_host, rcon_port, rcon_password]):
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
 
@@ -243,9 +240,11 @@ class JKChatBridge(commands.Cog):
     @commands.command(name="jkplayer")
     async def player_info(self, ctx, username: str):
         """Display player stats for the given username."""
-        # Validate RCON settings
-        is_valid, (rcon_host, rcon_port, rcon_password) = await self.validate_rcon_settings()
-        if not is_valid:
+        # Get RCON settings
+        rcon_host = await self.config.rcon_host()
+        rcon_port = await self.config.rcon_port()
+        rcon_password = await self.config.rcon_password()
+        if not all([rcon_host, rcon_port, rcon_password]):
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
 
@@ -347,18 +346,29 @@ class JKChatBridge(commands.Cog):
         # Ignore messages that aren't in the configured channel or are from bots
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
-        # Get the bot's command prefix (await it since it might be a coroutine)
-        prefix = await self.bot.command_prefix(self.bot, message)
+        # Get the bot's command prefix
+        prefix = self.bot.command_prefix(self.bot, message)
         if isinstance(prefix, (tuple, list)):
             prefix = prefix[0]
         else:
             prefix = str(prefix)
 
         # Clean up the message content to handle special characters
-        discord_username = self.clean_special_characters(message.author.display_name)
-        message_content = self.clean_special_characters(message.content)
+        discord_username = message.author.display_name
+        discord_username = discord_username.replace("’", "'").replace("‘", "'")
+        discord_username = discord_username.replace("“", "\"").replace("”", "\"")
+        discord_username = discord_username.replace("«", "\"").replace("»", "\"")
+        discord_username = discord_username.replace("–", "-").replace("—", "-")
+        discord_username = discord_username.replace("…", "...")
+        
+        message_content = message.content
+        message_content = message_content.replace("’", "'").replace("‘", "'")
+        message_content = message_content.replace("“", "\"").replace("”", "\"")
+        message_content = message_content.replace("«", "\"").replace("»", "\"")
+        message_content = message_content.replace("–", "-").replace("—", "-")
+        message_content = message_content.replace("…", "...")
 
-        # Replace Discord emojis with their corresponding text emotes
+        # Replace Discord emojis with their names
         message_content = self.replace_emojis_with_names(message_content)
 
         # Block messages containing URLs
@@ -388,8 +398,10 @@ class JKChatBridge(commands.Cog):
             is_first_chunk = False
 
         # Get RCON settings for sending the message
-        is_valid, (rcon_host, rcon_port, rcon_password) = await self.validate_rcon_settings()
-        if not is_valid:
+        rcon_host = await self.config.rcon_host()
+        rcon_port = await self.config.rcon_port()
+        rcon_password = await self.config.rcon_password()
+        if not all([rcon_host, rcon_port, rcon_password]):
             await message.channel.send("RCON settings not fully configured. Please contact an admin.")
             return
         
@@ -405,64 +417,26 @@ class JKChatBridge(commands.Cog):
         except Exception as e:
             await message.channel.send(f"Failed to send to game: {e}")
 
-    def clean_special_characters(self, text):
-        """Replace special characters with their simpler equivalents."""
-        replacements = {
-            "’": "'", "‘": "'", "“": "\"", "”": "\"", "«": "\"", "»": "\"",
-            "–": "-", "—": "-", "…": "..."
-        }
-        for old, new in replacements.items():
-            text = text.replace(old, new)
-        return text
-
     def replace_emojis_with_names(self, text):
-        """Replace custom Discord emojis with :name: and convert standard Unicode emojis to text emotes."""
+        """Replace custom Discord emojis with :name: and remove standard Unicode emojis."""
         # Replace custom emojis with their names (e.g., :emoji_name:)
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
-        # Convert standard Unicode emojis to their corresponding text emotes
-        emoji_to_text_map = {
-            "😊": ":)", "😄": ":D", "😂": "XD", "🤣": "xD", "😉": ";)", "😛": ":P", "😢": ":(",
-            "😡": ">:(", "👍": ":+1:", "👎": ":-1:", "❤️": "<3", "💖": "<3", "😍": ":*", "🙂": ":)", "😣": ":S", "😜": ";P",
-            "😮": ":o",  # Astonished Face
-            "😁": "=D",  # Grinning Face with Smiling Eyes
-            "😆": "xD",  # Laughing Face (shares mapping with 🤣)
-            "😳": "O.o",  # Flushed Face
-            "🤓": "B)",  # Nerd Face
-            "😴": "-_-",  # Sleeping Face
-            "😅": "^^;",  # Smiling Face with Sweat
-            "😒": ":/",  # Unamused Face
-            "😘": ":*",  # Face Blowing a Kiss (shares mapping with 😍)
-            "😎": "8)",  # Sunglasses Face
-            "😱": "D:",  # Face Screaming in Fear
-            "🤔": ":?",  # Thinking Face
-            "🥳": "\\o/",  # Partying Face
-            "🤗": ">^.^<",  # Hugging Face
-            "🤪": ":p"  # Zany Face
+        # Remove common Unicode emojis
+        emoji_map = {
+            "😊": "", "😄": "", "😂": "", "🤣": "", "😉": "", "😛": "", "😢": "", "😡": "",
+            "👍": "", "👎": "", "❤️": "", "💖": "", "😍": "", "🙂": "", "😣": "", "😜": ""
         }
-        for emoji, text_emote in emoji_to_text_map.items():
-            text = text.replace(emoji, text_emote)
+        for unicode_emoji, _ in emoji_map.items():
+            text = text.replace(unicode_emoji, "")
         return text
 
     def replace_text_emotes_with_emojis(self, text):
         """Convert common text emoticons from Jedi Knight to Discord emojis."""
-        # Map text emotes to their emoji equivalents using a loop
+        # Map text emotes to their emoji equivalents
         text_emote_map = {
             ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
-            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣", ";P": "😜",
-            ":o": "😮",  # Astonished Face
-            "=D": "😁",  # Grinning Face with Smiling Eyes
-            "O.o": "😳",  # Flushed Face
-            "B)": "🤓",  # Nerd Face
-            "-_-": "😴",  # Sleeping Face
-            "^^;": "😅",  # Smiling Face with Sweat
-            ":/": "😒",  # Unamused Face
-            "8)": "😎",  # Sunglasses Face
-            "D:": "😱",  # Face Screaming in Fear
-            ":?": "🤔",  # Thinking Face
-            "\\o/": "🥳",  # Partying Face
-            ">^.^<": "🤗",  # Hugging Face
-            ":p": "🤪"  # Zany Face
+            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣"
         }
         for text_emote, emoji in text_emote_map.items():
             text = text.replace(text_emote, emoji)
@@ -493,8 +467,8 @@ class JKChatBridge(commands.Cog):
     async def monitor_log(self):
         """Monitor the latest Lugormod log file and send messages to Discord."""
         self.monitoring = True
-        try:
-            while self.monitoring:
+        while self.monitoring:
+            try:
                 # Get settings for log monitoring
                 log_base_path = await self.config.log_base_path()
                 channel_id = await self.config.discord_channel_id()
@@ -533,12 +507,24 @@ class JKChatBridge(commands.Cog):
                         # Handle player connect events
                         elif "ClientConnect:" in line:
                             self.last_connected_client = line.split("ClientConnect: ")[1].strip()
-                        elif ("ClientUserinfoChanged handling info:" in line or "ClientUserinfoChanged:" in line) and self.last_connected_client:
-                            client_id = line.split("ClientUserinfoChanged")[1].split(": ")[1].split()[0]
+                        elif "ClientUserinfoChanged handling info:" in line and self.last_connected_client:
+                            client_id = line.split("ClientUserinfoChanged handling info: ")[1].split()[0]
                             if client_id == self.last_connected_client:
-                                name_match = re.search(r"(\\name\\|n\\)([^\\]+)", line)
-                                if name_match and "Padawan" not in name_match.group(2):
-                                    player_name = self.remove_color_codes(name_match.group(2))
+                                name_match = re.search(r"\\name\\([^\\]+)", line)
+                                if name_match and "Padawan" not in name_match.group(1):
+                                    player_name = self.remove_color_codes(name_match.group(1))
+                                    self.client_names[client_id] = (player_name, None)
+                                    name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
+                                    join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
+                                    if channel and not name.endswith("-Bot"):
+                                        await channel.send(join_message)
+                                    self.last_connected_client = None
+                        elif "ClientUserinfoChanged:" in line and self.last_connected_client:
+                            client_id = line.split("ClientUserinfoChanged: ")[1].split()[0]
+                            if client_id == self.last_connected_client:
+                                name_match = re.search(r"n\\([^\\]+)", line)
+                                if name_match and "Padawan" not in name_match.group(1):
+                                    player_name = self.remove_color_codes(name_match.group(1))
                                     self.client_names[client_id] = (player_name, None)
                                     name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
                                     join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
@@ -581,9 +567,10 @@ class JKChatBridge(commands.Cog):
                                 winner = self.remove_color_codes(parts[0].strip())
                                 loser = self.remove_color_codes(parts[1].strip())
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
-        except Exception as e:
-            print(f"Error in monitor_log: {e}")  # Log errors to help diagnose issues
-            await asyncio.sleep(5)
+            except FileNotFoundError:
+                await asyncio.sleep(5)
+            except Exception as e:
+                await asyncio.sleep(5)
 
     def start_monitoring(self):
         """Start the log monitoring task if it's not already running."""
