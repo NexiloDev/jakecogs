@@ -30,10 +30,12 @@ class JKChatBridge(commands.Cog):
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
         )
-        # Start monitoring and fetch initial playerlist
         self.start_monitoring()
-        asyncio.create_task(self.fetch_initial_playerlist())
         print("JKChatBridge cog initialized.")
+
+    async def cog_load(self):
+        """Run after bot is fully ready to fetch initial playerlist."""
+        await self.fetch_initial_playerlist()
 
     async def fetch_initial_playerlist(self):
         """Fetch and store player data from rcon playerlist on cog load/reload."""
@@ -50,15 +52,18 @@ class JKChatBridge(commands.Cog):
             )
             playerlist_lines = playerlist_response.decode(errors='replace').splitlines()
 
+            self.client_names.clear()  # Reset to ensure fresh data
             for line in playerlist_lines:
-                if re.match(r"^\d+\s+\S+", line):
-                    parts = re.split(r"\s+", line.strip(), maxsplit=12)
+                if re.match(r"^\d+\s+", line):
+                    # Split on whitespace, but preserve the name field carefully
+                    parts = re.split(r"\s+", line.strip())
                     if len(parts) >= 12:
                         client_id = parts[0]
-                        player_name = self.remove_color_codes(parts[1])
+                        player_name = self.remove_color_codes(" ".join(parts[1:parts.index(parts[11])]))  # Name might have spaces
                         username = parts[11] if parts[11] != "0" else None
                         self.client_names[client_id] = (player_name, username)
                         print(f"Initial playerlist update: Client {client_id} - Name: {player_name}, Username: {username}")
+            print(f"Updated self.client_names: {self.client_names}")
         except Exception as e:
             print(f"Error fetching initial playerlist: {e}")
 
@@ -149,7 +154,7 @@ class JKChatBridge(commands.Cog):
                 pass
         self.client_names.clear()
         self.start_monitoring()
-        await self.fetch_initial_playerlist()  # Refresh playerlist on reload
+        await self.fetch_initial_playerlist()
         await ctx.send("Log monitoring task and playerlist reloaded.")
 
     @commands.command(name="jkstatus")
@@ -180,7 +185,6 @@ class JKChatBridge(commands.Cog):
             mod_name = "Unknown"
             map_name = "Unknown"
             player_count = "0 humans, 0 bots"
-            online_client_ids = []
 
             for line in status_lines:
                 if "hostname:" in line:
@@ -193,27 +197,25 @@ class JKChatBridge(commands.Cog):
                     player_count = line.split("players :")[1].strip()
 
             # Parse playerlist for client IDs, names, and usernames
+            online_client_ids = []
             for line in playerlist_lines:
-                if re.match(r"^\d+\s+\S+", line):
-                    parts = re.split(r"\s+", line.strip(), maxsplit=12)
+                if re.match(r"^\d+\s+", line):
+                    parts = re.split(r"\s+", line.strip())
                     if len(parts) >= 12:
                         client_id = parts[0]
-                        player_name = self.remove_color_codes(parts[1])
+                        player_name = self.remove_color_codes(" ".join(parts[1:parts.index(parts[11])]))
                         username = parts[11] if parts[11] != "0" else None
                         online_client_ids.append(client_id)
                         self.client_names[client_id] = (player_name, username)
+                        print(f"jkstatus update: Client {client_id} - Name: {player_name}, Username: {username}")
 
-            # Build player list from online_client_ids
-            players = []
-            for client_id in online_client_ids:
-                name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
-                players.append((client_id, name))
-
-            # Format player list
+            # Build player list
+            players = [(cid, self.client_names[cid][0]) for cid in online_client_ids if cid in self.client_names]
             player_list = "No players online"
             if players:
                 player_lines = [f"{client_id:<3} {name}" for client_id, name in players]
                 player_list = "```\n" + "\n".join(player_lines) + "\n```"
+            print(f"Players for embed: {players}")
 
             # Create embed
             embed = discord.Embed(
