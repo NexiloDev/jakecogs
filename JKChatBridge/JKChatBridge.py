@@ -58,7 +58,11 @@ class JKChatBridge(commands.Cog):
 
     async def cog_load(self):
         """Initialize player data when the cog loads."""
-        await self.fetch_player_data()
+        try:
+            await self.fetch_player_data()
+            await self.log_action("JKChatBridge cog loaded successfully.")
+        except Exception as e:
+            await self.log_action(f"Error during cog_load: {e}")
 
     async def validate_rcon_settings(self):
         """Validate that RCON settings are fully configured."""
@@ -506,13 +510,13 @@ class JKChatBridge(commands.Cog):
             )
             response_text = nextmap_response.decode('utf-8', errors='replace')
             
-            # Step 2: Parse the response to extract the map ID (e.g., "vstr d8")
+            # Step 2: Parse the response to extract the map ID (e.g., "d8" from "vstr d8")
             map_id = None
             for line in response_text.splitlines():
                 if "Cvar nextmap =" in line:
-                    match = re.search(r'Cvar nextmap = "([^"]+)"', line)
+                    match = re.search(r'vstr\s+(d\d+)', line)
                     if match:
-                        map_id = match.group(1)  # e.g., "vstr d8"
+                        map_id = match.group(1)  # e.g., "d8"
                         break
             
             if not map_id:
@@ -520,9 +524,10 @@ class JKChatBridge(commands.Cog):
                 await self.log_action(f"Error: Failed to retrieve next map ID for {ctx.author.name}")
                 return
 
-            # Step 3: Send the "vstr <id>" command to change the map
+            # Step 3: Send the "vstr <id>" command to change the map with a small delay
+            await asyncio.sleep(0.5)  # Small delay to ensure server processes the response
             await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, map_id, rcon_host, rcon_port, rcon_password
+                self.executor, self.send_rcon_command, f"vstr {map_id}", rcon_host, rcon_port, rcon_password
             )
             await ctx.send("Loading next map.")
             await self.log_action(f"{ctx.author.name} changed to the next map: {map_id}")
@@ -581,11 +586,15 @@ class JKChatBridge(commands.Cog):
 
     async def cog_unload(self):
         """Clean up when unloading the cog."""
-        self.monitoring = False
-        if self.monitor_task and not self.monitor_task.done():
-            self.monitor_task.cancel()
-            await self.monitor_task
-        self.executor.shutdown(wait=False)
+        try:
+            self.monitoring = False
+            if self.monitor_task and not self.monitor_task.done():
+                self.monitor_task.cancel()
+                await self.monitor_task
+            self.executor.shutdown(wait=False)
+            await self.log_action("JKChatBridge cog unloaded successfully.")
+        except Exception as e:
+            await self.log_action(f"Error during cog_unload: {e}")
 
 async def setup(bot):
     """Load the JKChatBridge cog into the bot."""
