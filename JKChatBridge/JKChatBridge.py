@@ -52,17 +52,19 @@ class JKChatBridge(commands.Cog):
             )
             playerlist_lines = playerlist_response.decode(errors='replace').splitlines()
 
-            self.client_names.clear()  # Reset to ensure fresh data
+            self.client_names.clear()
             for line in playerlist_lines:
-                if re.match(r"^\d+\s+", line):
-                    # Split on whitespace, but preserve the name field carefully
-                    parts = re.split(r"\s+", line.strip())
-                    if len(parts) >= 12:
-                        client_id = parts[0]
-                        player_name = self.remove_color_codes(" ".join(parts[1:parts.index(parts[11])]))  # Name might have spaces
-                        username = parts[11] if parts[11] != "0" else None
-                        self.client_names[client_id] = (player_name, username)
-                        print(f"Initial playerlist update: Client {client_id} - Name: {player_name}, Username: {username}")
+                match = re.match(r'^(\d+)\s+(.*?)\s+(\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\w+)$', line.strip())
+                if match:
+                    client_id = match.group(1)
+                    # Extract everything between client_id and the stats block as the name
+                    player_name_raw = match.group(2).strip()
+                    player_name = self.remove_color_codes(player_name_raw)
+                    # Last field after stats is username
+                    parts = match.group(3).split()
+                    username = parts[-1] if parts[-1] != "0" else None
+                    self.client_names[client_id] = (player_name, username)
+                    print(f"Initial playerlist update: Client {client_id} - Name: {player_name}, Username: {username}")
             print(f"Updated self.client_names: {self.client_names}")
         except Exception as e:
             print(f"Error fetching initial playerlist: {e}")
@@ -199,15 +201,16 @@ class JKChatBridge(commands.Cog):
             # Parse playerlist for client IDs, names, and usernames
             online_client_ids = []
             for line in playerlist_lines:
-                if re.match(r"^\d+\s+", line):
-                    parts = re.split(r"\s+", line.strip())
-                    if len(parts) >= 12:
-                        client_id = parts[0]
-                        player_name = self.remove_color_codes(" ".join(parts[1:parts.index(parts[11])]))
-                        username = parts[11] if parts[11] != "0" else None
-                        online_client_ids.append(client_id)
-                        self.client_names[client_id] = (player_name, username)
-                        print(f"jkstatus update: Client {client_id} - Name: {player_name}, Username: {username}")
+                match = re.match(r'^(\d+)\s+(.*?)\s+(\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\w+)$', line.strip())
+                if match:
+                    client_id = match.group(1)
+                    player_name_raw = match.group(2).strip()
+                    player_name = self.remove_color_codes(player_name_raw)
+                    parts = match.group(3).split()
+                    username = parts[-1] if parts[-1] != "0" else None
+                    online_client_ids.append(client_id)
+                    self.client_names[client_id] = (player_name, username)
+                    print(f"jkstatus update: Client {client_id} - Name: {player_name}, Username: {username}")
 
             # Build player list
             players = [(cid, self.client_names[cid][0]) for cid in online_client_ids if cid in self.client_names]
