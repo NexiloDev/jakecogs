@@ -420,21 +420,25 @@ class JKChatBridge(commands.Cog):
         # Replace custom emojis with their names (e.g., :emoji_name:)
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
-        # Remove common Unicode emojis using str.translate for efficiency
-        emoji_map = str.maketrans({
+        # Remove common Unicode emojis using a loop (since str.maketrans doesn't support multi-character keys)
+        emoji_map = {
             "😊": "", "😄": "", "😂": "", "🤣": "", "😉": "", "😛": "", "😢": "", "😡": "",
             "👍": "", "👎": "", "❤️": "", "💖": "", "😍": "", "🙂": "", "😣": "", "😜": ""
-        })
-        return text.translate(emoji_map)
+        }
+        for unicode_emoji, _ in emoji_map.items():
+            text = text.replace(unicode_emoji, "")
+        return text
 
     def replace_text_emotes_with_emojis(self, text):
         """Convert common text emoticons from Jedi Knight to Discord emojis."""
-        # Map text emotes to their emoji equivalents using str.translate
-        text_emote_map = str.maketrans({
+        # Map text emotes to their emoji equivalents using a loop (since str.maketrans doesn't support multi-character keys)
+        text_emote_map = {
             ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
             ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣"
-        })
-        return text.translate(text_emote_map)
+        }
+        for text_emote, emoji in text_emote_map.items():
+            text = text.replace(text_emote, emoji)
+        return text
 
     def send_rcon_command(self, command, host, port, password):
         """Send an RCON command to the game server and return the response."""
@@ -461,8 +465,8 @@ class JKChatBridge(commands.Cog):
     async def monitor_log(self):
         """Monitor the latest Lugormod log file and send messages to Discord."""
         self.monitoring = True
-        while self.monitoring:
-            try:
+        try:
+            while self.monitoring:
                 # Get settings for log monitoring
                 log_base_path = await self.config.log_base_path()
                 channel_id = await self.config.discord_channel_id()
@@ -549,10 +553,9 @@ class JKChatBridge(commands.Cog):
                                 winner = self.remove_color_codes(parts[0].strip())
                                 loser = self.remove_color_codes(parts[1].strip())
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
-            except FileNotFoundError:
-                await asyncio.sleep(5)
-            except Exception as e:
-                await asyncio.sleep(5)
+        except Exception as e:
+            print(f"Error in monitor_log: {e}")  # Log errors to help diagnose issues
+            await asyncio.sleep(5)
 
     def start_monitoring(self):
         """Start the log monitoring task if it's not already running."""
