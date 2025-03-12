@@ -12,7 +12,9 @@ class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with dynamic log file support for Lugormod."""
 
     def __init__(self, bot):
+        # Store the bot instance so I can use it throughout the class
         self.bot = bot
+        # Set up configuration for storing settings like RCON details and Discord channel ID
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.config.register_global(
             log_base_path=None,
@@ -22,63 +24,73 @@ class JKChatBridge(commands.Cog):
             rcon_password=None,
             custom_emoji="<:jk:1219115870928900146>"
         )
+        # Create a thread pool to handle RCON commands without blocking the bot
         self.executor = ThreadPoolExecutor(max_workers=2)
+        # Flag to control the log monitoring loop
         self.monitoring = False
+        # Variable to hold the monitoring task
         self.monitor_task = None
-        self.client_names = {}  # {client_id: (name, username)}
-        self.last_connected_client = None  # Track the most recent client ID that connected
+        # Dictionary to store client IDs mapped to their names and usernames
+        self.client_names = {}  # Format: {client_id: (name, username)}
+        # Track the most recent client ID that connected
+        self.last_connected_client = None
+        # Regex pattern to detect URLs in messages (to block them)
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
         )
-        self.filtered_commands = {"jkstatus", "jkbridge", "jk"}  # Commands to filter
+        # List of commands to filter out from being sent to the game
+        self.filtered_commands = {"jkstatus", "jkbridge", "jk"}
+        # Start monitoring the game log file for chat and events
         self.start_monitoring()
-        print("JKChatBridge cog initialized.")
 
     async def cog_load(self):
-        """Run after bot is fully ready to fetch initial player data."""
+        """Run after the bot is fully ready to fetch initial player data."""
         await self.fetch_player_data()
 
     async def fetch_player_data(self, ctx=None):
-        """Fetch all player data (ID, name, username) from rcon playerlist."""
+        """Fetch player data (ID, name, username) from the game server using the RCON 'playerlist' command."""
+        # Get RCON settings from the config
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
         if not all([rcon_host, rcon_port, rcon_password]):
-            print("RCON settings not fully configured. Skipping player data fetch.")
-            return
+            return  # Can't proceed without RCON settings
 
-        # Skip RCON command if called from a cog command context
+        # Skip RCON command if called from a command context (e.g., jkstatus)
         if ctx:
-            print("Fetching player data from command context, skipping RCON.")
             return
 
         try:
+            # Send the 'playerlist' command to the game server
             playerlist_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
             )
             temp_client_names = {}
+            # Parse each line of the playerlist response
             for line in playerlist_response.decode(errors='replace').splitlines():
+                # Skip irrelevant lines (like summary stats)
                 if "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
                     continue
                 parts = re.split(r"\s+", line.strip())
+                # Check if the line has enough parts and the first part (client ID) starts with a color code
                 if len(parts) >= 6 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
                     client_id = self.remove_color_codes(parts[0])
                     player_name = self.remove_color_codes(parts[1])
+                    # Last part is the username if it's not a number
                     username = parts[-1] if parts[-1].isalpha() or not parts[-1].isdigit() else None
                     temp_client_names[client_id] = (player_name, username)
-            # Only update username if it exists, preserve the original name
+            # Update self.client_names, preserving the name if it already exists
             for client_id, (name, username) in temp_client_names.items():
                 if client_id in self.client_names:
-                    # Preserve the existing name, only update the username
+                    # Keep the existing name, only update the username
                     existing_name, _ = self.client_names[client_id]
                     self.client_names[client_id] = (existing_name, username)
                 else:
-                    # If client_id doesn't exist, add the new entry
+                    # Add new entry if client_id doesn't exist
                     self.client_names[client_id] = (name, username)
-            print(f"Updated self.client_names: {self.client_names}")
         except Exception as e:
-            print(f"Error fetching player data from playerlist: {e}")
+            pass  # Silently fail if fetching player data fails
 
     @commands.group(name="jkbridge", aliases=["jk"])
     @commands.is_owner()
@@ -90,57 +102,54 @@ class JKChatBridge(commands.Cog):
     async def setlogbasepath(self, ctx, path: str):
         """Set the base path for Lugormod log files (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod\\logs)."""
         await self.config.log_base_path.set(path)
-        print(f"Log base path set to: {path}")
         await ctx.send(f"Log base path set to: {path}")
 
     @jkbridge.command()
     async def setchannel(self, ctx, channel: discord.TextChannel):
         """Set the Discord channel for the chat bridge."""
         await self.config.discord_channel_id.set(channel.id)
-        print(f"Discord channel set to: {channel.name} (ID: {channel.id})")
         await ctx.send(f"Discord channel set to: {channel.name} (ID: {channel.id})")
 
     @jkbridge.command()
     async def setrconhost(self, ctx, host: str):
         """Set the RCON host (IP or address)."""
         await self.config.rcon_host.set(host)
-        print(f"RCON host set to: {host}")
         await ctx.send(f"RCON host set to: {host}")
 
     @jkbridge.command()
     async def setrconport(self, ctx, port: int):
         """Set the RCON port."""
         await self.config.rcon_port.set(port)
-        print(f"RCON port set to: {port}")
         await ctx.send(f"RCON port set to: {port}")
 
     @jkbridge.command()
     async def setrconpassword(self, ctx, password: str):
         """Set the RCON password."""
         await self.config.rcon_password.set(password)
-        print("RCON password set.")
         await ctx.send("RCON password set.")
 
     @jkbridge.command()
     async def setcustomemoji(self, ctx, emoji: str):
         """Set the custom emoji for game-to-Discord chat messages (e.g., <:jk:1219115870928900146>)."""
         await self.config.custom_emoji.set(emoji)
-        print(f"Custom emoji set to: {emoji}")
         await ctx.send(f"Custom emoji set to: {emoji}")
 
     @jkbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the JK chat bridge."""
+        # Retrieve all settings from the config
         log_base_path = await self.config.log_base_path()
         discord_channel_id = await self.config.discord_channel_id()
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
         custom_emoji = await self.config.custom_emoji()
+        # Get the channel name if a channel ID is set
         channel_name = "Not set"
         if discord_channel_id:
             channel = self.bot.get_channel(discord_channel_id)
             channel_name = channel.name if channel else "Unknown channel"
+        # Format the settings into a message
         settings_message = (
             f"**Current Settings:**\n"
             f"Log Base Path: {log_base_path or 'Not set'}\n"
@@ -150,12 +159,12 @@ class JKChatBridge(commands.Cog):
             f"RCON Password: {'Set' if rcon_password else 'Not set'}\n"
             f"Custom Emoji: {custom_emoji or 'Not set'}"
         )
-        print("Showing settings:", settings_message)
         await ctx.send(settings_message)
 
     @jkbridge.command()
     async def reloadmonitor(self, ctx):
         """Force reload the log monitoring task and refresh player data."""
+        # Stop the current monitoring task if it's running
         if self.monitor_task and not self.monitor_task.done():
             self.monitoring = False
             self.monitor_task.cancel()
@@ -163,6 +172,7 @@ class JKChatBridge(commands.Cog):
                 await self.monitor_task
             except asyncio.CancelledError:
                 pass
+        # Clear the client names and restart monitoring
         self.client_names.clear()
         self.start_monitoring()
         await self.fetch_player_data(ctx)
@@ -171,6 +181,7 @@ class JKChatBridge(commands.Cog):
     @commands.command(name="jkstatus")
     async def status(self, ctx):
         """Display detailed server status with emojis. Accessible to all users."""
+        # Get RCON settings
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
@@ -179,17 +190,21 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
+            # Fetch player data to ensure client_names is up-to-date
             await self.fetch_player_data(ctx)
+            # Send the 'status' command to the game server
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", rcon_host, rcon_port, rcon_password
             )
             status_lines = status_response.decode(errors='replace').splitlines()
 
+            # Default values for server info
             server_name = "Unknown"
             mod_name = "Unknown"
             map_name = "Unknown"
             player_count = "0 humans, 0 bots"
 
+            # Parse the status response to extract server details
             for line in status_lines:
                 if "hostname:" in line:
                     server_name = self.remove_color_codes(line.split("hostname:")[1].strip()).replace("Ç", "").encode().decode('ascii', 'ignore')
@@ -200,6 +215,7 @@ class JKChatBridge(commands.Cog):
                 elif "players :" in line:
                     player_count = line.split("players :")[1].strip()
 
+            # Build a list of online players
             players = [(cid, f"{self.client_names[cid][0]}{'(' + self.client_names[cid][1] + ')' if self.client_names[cid][1] else ''}")
                        for cid in self.client_names.keys()]
             player_list = "No players online"
@@ -207,6 +223,7 @@ class JKChatBridge(commands.Cog):
                 player_lines = [f"{client_id:<3} {name_with_username}" for client_id, name_with_username in players]
                 player_list = "```\n" + "\n".join(player_lines) + "\n```"
 
+            # Create an embed to display the server status
             embed = discord.Embed(
                 title=f"🌌 {server_name} 🌌",
                 color=discord.Color.gold()
@@ -218,12 +235,12 @@ class JKChatBridge(commands.Cog):
 
             await ctx.send(embed=embed)
         except Exception as e:
-            print(f"Error fetching server status: {e}")
             await ctx.send(f"Failed to retrieve server status: {e}")
 
     @commands.command(name="jkplayer")
     async def player_info(self, ctx, username: str):
         """Display player stats for the given username."""
+        # Get RCON settings
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
@@ -231,12 +248,13 @@ class JKChatBridge(commands.Cog):
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
 
+        # Send the 'accountinfo' command to get player stats
         command = f"accountinfo {username}"
         try:
             response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, command, rcon_host, rcon_port, rcon_password
             )
-            # Try decoding with different encodings
+            # Try decoding the response with different encodings to handle special characters
             try:
                 response_text = response.decode('utf-8')
             except UnicodeDecodeError:
@@ -244,14 +262,12 @@ class JKChatBridge(commands.Cog):
                     response_text = response.decode('latin-1')
                 except UnicodeDecodeError:
                     response_text = response.decode('cp1252', errors='replace')
-            print(f"Raw RCON response for 'accountinfo {username}':\n{response_text}")
             response_lines = response_text.splitlines()
         except Exception as e:
-            print(f"Error fetching RCON response: {e}")
             await ctx.send(f"Failed to retrieve player info: {e}")
             return
 
-        # Parse response, removing color codes from keys and values
+        # Parse the response into a dictionary
         stats = {}
         timestamp_pattern = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}')
         for line in response_lines:
@@ -259,10 +275,10 @@ class JKChatBridge(commands.Cog):
             if timestamp_pattern.match(line) or line.startswith('\xff\xff\xff\xffprint'):
                 continue  # Skip timestamp lines and initial print marker
             if ":" in line:
-                # Handle lines with a colon (e.g., "^3Duels won:     ^21159")
+                # Handle lines with a colon (e.g., "Duels won: 1159")
                 key, value = map(str.strip, line.split(":", 1))
             else:
-                # Handle lines without a colon (e.g., "^3Total duels    ^21934")
+                # Handle lines without a colon (e.g., "Total duels    1934")
                 parts = re.split(r'\s{2,}', line)  # Split on two or more spaces
                 if len(parts) >= 2:
                     key = parts[0]
@@ -274,25 +290,23 @@ class JKChatBridge(commands.Cog):
             if clean_key and clean_value:
                 stats[clean_key] = clean_value
 
-        print(f"Parsed stats: {stats}")
-
-        # Check if player exists by looking for 'Id' or 'Username'
+        # Check if the player exists by looking for 'Id' or 'Username'
         if "Id" not in stats and "Username" not in stats:
             await ctx.send(f"Player '{username}' not found.")
             return
 
-        # Calculate duels lost
+        # Calculate duels lost (Total duels - Duels won)
         wins = int(stats.get("Duels won", "0"))
         total_duels = int(stats.get("Total duels", "0"))
         losses = max(0, total_duels - wins)  # Ensure no negative losses
 
-        # Format playtime (hours only)
+        # Format playtime to show only hours
         playtime = stats.get("Time", "N/A")
         if ":" in playtime and playtime != "N/A":
             hours = playtime.split(":")[0]
             playtime = f"{hours} Hrs"
 
-        # Create the embed with username in the title
+        # Create the embed with the player's stats
         player_name = stats.get("Name", username)
         player_username = stats.get("Username", "N/A")
         # Ensure the player_name is properly encoded for Discord
@@ -307,6 +321,7 @@ class JKChatBridge(commands.Cog):
         )
         embed.description = "\n"  # Blank line for separation
 
+        # Add fields to the embed for each stat
         embed.add_field(name="⏱️ Playtime", value=playtime, inline=True)
         embed.add_field(name="🔼 Level", value=stats.get("Level", "N/A"), inline=True)
         embed.add_field(name="🛡️ Profession", value=stats.get("Profession", "N/A"), inline=True)
@@ -317,7 +332,7 @@ class JKChatBridge(commands.Cog):
         embed.add_field(name="⚔️ Duels Lost", value=str(losses), inline=True)
         embed.add_field(name="🗡️ Total Kills", value=stats.get("Kills", "0"), inline=True)
 
-        # Set footer with Last Login
+        # Set footer with the player's last login time
         last_login = stats.get("Last login", "N/A")
         embed.set_footer(text=f"Last Login: {last_login}")
 
@@ -326,21 +341,20 @@ class JKChatBridge(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message):
         """Handle messages from Discord and send them to the game server via RCON."""
+        # Get the configured Discord channel ID
         channel_id = await self.config.discord_channel_id()
+        # Ignore messages that aren't in the configured channel or are from bots
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
+        # Get the bot's command prefix
         prefix = self.bot.command_prefix(self.bot, message)
         if isinstance(prefix, (tuple, list)):
             prefix = prefix[0]
         else:
             prefix = str(prefix)
-        # Command filtering is commented out as per request
-        # content = message.content.lower().strip()
-        # if any(content == f"{prefix}{cmd}" for cmd in self.filtered_commands):
-        #     print(f"Skipping RCON for command: {content}")
-        #     return
+
+        # Clean up the message content to handle special characters
         discord_username = message.author.display_name
-        
         discord_username = discord_username.replace("’", "'").replace("‘", "'")
         discord_username = discord_username.replace("“", "\"").replace("”", "\"")
         discord_username = discord_username.replace("«", "\"").replace("»", "\"")
@@ -354,16 +368,19 @@ class JKChatBridge(commands.Cog):
         message_content = message_content.replace("–", "-").replace("—", "-")
         message_content = message_content.replace("…", "...")
 
+        # Replace Discord emojis with their names
         message_content = self.replace_emojis_with_names(message_content)
 
+        # Block messages containing URLs
         if self.url_pattern.search(message_content):
-            print(f"Blocked Discord message with URL: {message_content}")
             return
 
+        # Prepare the message prefix for sending to the game
         initial_prefix = f"say ^5{{D}}^7{discord_username}^2: "
         continuation_prefix = "say "
         max_length = 115
         
+        # Split the message into chunks if it's too long
         chunks = []
         remaining = message_content
         is_first_chunk = True
@@ -380,31 +397,32 @@ class JKChatBridge(commands.Cog):
             remaining = remaining[split_point:].strip()
             is_first_chunk = False
 
+        # Get RCON settings for sending the message
         rcon_host = await self.config.rcon_host()
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
         if not all([rcon_host, rcon_port, rcon_password]):
-            print("RCON settings not fully configured.")
             await message.channel.send("RCON settings not fully configured. Please contact an admin.")
             return
         
         try:
+            # Send each chunk to the game server
             for i, chunk in enumerate(chunks):
                 if i == 0:
                     server_command = f"{initial_prefix}{chunk}"
                 else:
                     server_command = f"{continuation_prefix}{chunk}"
-                print(f"Sending RCON command: {server_command}")
                 await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, rcon_host, rcon_port, rcon_password)
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.1)  # Small delay to avoid flooding
         except Exception as e:
-            print(f"Error sending RCON command: {e}")
             await message.channel.send(f"Failed to send to game: {e}")
 
     def replace_emojis_with_names(self, text):
         """Replace custom Discord emojis with :name: and remove standard Unicode emojis."""
+        # Replace custom emojis with their names (e.g., :emoji_name:)
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
+        # Remove common Unicode emojis
         emoji_map = {
             "😊": "", "😄": "", "😂": "", "🤣": "", "😉": "", "😛": "", "😢": "", "😡": "",
             "👍": "", "👎": "", "❤️": "", "💖": "", "😍": "", "🙂": "", "😣": "", "😜": ""
@@ -415,6 +433,7 @@ class JKChatBridge(commands.Cog):
 
     def replace_text_emotes_with_emojis(self, text):
         """Convert common text emoticons from Jedi Knight to Discord emojis."""
+        # Map text emotes to their emoji equivalents
         text_emote_map = {
             ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
             ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣"
@@ -424,9 +443,11 @@ class JKChatBridge(commands.Cog):
         return text
 
     def send_rcon_command(self, command, host, port, password):
-        """Send an RCON command to the game server and return response."""
+        """Send an RCON command to the game server and return the response."""
+        # Create a UDP socket for RCON communication
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(5)
+        # Format the RCON packet
         packet = b'\xff\xff\xff\xffrcon ' + password.encode() + b' ' + command.encode()
         try:
             sock.sendto(packet, (host, port))
@@ -446,9 +467,9 @@ class JKChatBridge(commands.Cog):
     async def monitor_log(self):
         """Monitor the latest Lugormod log file and send messages to Discord."""
         self.monitoring = True
-        print("Log monitoring task started.")
         while self.monitoring:
             try:
+                # Get settings for log monitoring
                 log_base_path = await self.config.log_base_path()
                 channel_id = await self.config.discord_channel_id()
                 custom_emoji = await self.config.custom_emoji()
@@ -456,22 +477,24 @@ class JKChatBridge(commands.Cog):
                     await asyncio.sleep(5)
                     continue
 
+                # Get the Discord channel to send messages to
                 channel = self.bot.get_channel(channel_id)
 
+                # Determine the current log file based on the date
                 now = datetime.now()
                 current_date = f"{now.month}-{now.day}-{now.year}"
-
                 log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
-                print(f"Monitoring log file: {log_file_path}")
 
+                # Open and monitor the log file
                 async with aiofiles.open(log_file_path, mode='r') as f:
-                    await f.seek(0, 2)
+                    await f.seek(0, 2)  # Go to the end of the file
                     while self.monitoring:
                         line = await f.readline()
                         if not line:
                             await asyncio.sleep(0.1)
                             continue
                         line = line.strip()
+                        # Handle chat messages from the game
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
@@ -481,9 +504,9 @@ class JKChatBridge(commands.Cog):
                                 discord_message = f"{custom_emoji} **{player_name}**: {message}"
                                 if channel:
                                     await channel.send(discord_message)
+                        # Handle player connect events
                         elif "ClientConnect:" in line:
                             self.last_connected_client = line.split("ClientConnect: ")[1].strip()
-                            print(f"ClientConnect: Set last_connected_client to {self.last_connected_client}")
                         elif "ClientUserinfoChanged handling info:" in line and self.last_connected_client:
                             client_id = line.split("ClientUserinfoChanged handling info: ")[1].split()[0]
                             if client_id == self.last_connected_client:
@@ -491,7 +514,6 @@ class JKChatBridge(commands.Cog):
                                 if name_match and "Padawan" not in name_match.group(1):
                                     player_name = self.remove_color_codes(name_match.group(1))
                                     self.client_names[client_id] = (player_name, None)
-                                    print(f"ClientUserinfoChanged handling info: Added {client_id}: ({player_name}, None) to client_names")
                                     name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
                                     join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                                     if channel and not name.endswith("-Bot"):
@@ -504,26 +526,23 @@ class JKChatBridge(commands.Cog):
                                 if name_match and "Padawan" not in name_match.group(1):
                                     player_name = self.remove_color_codes(name_match.group(1))
                                     self.client_names[client_id] = (player_name, None)
-                                    print(f"ClientUserinfoChanged: Added {client_id}: ({player_name}, None) to client_names")
                                     name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
                                     join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                                     if channel and not name.endswith("-Bot"):
                                         await channel.send(join_message)
                                     self.last_connected_client = None
+                        # Handle player login events
                         elif "Player" in line and "has logged in" in line:
-                            # Parse the login message to update the name
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged in', line)
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
                                 username = match.group(2)
-                                # Find the client_id for this player_name
                                 for cid, (name, _) in self.client_names.items():
                                     if name == player_name:
                                         self.client_names[cid] = (player_name, username)
-                                        print(f"Player logged in: Updated {cid}: ({player_name}, {username})")
                                         break
-                            # Still fetch player data to update other details, but don't overwrite the name
                             await self.fetch_player_data()
+                        # Handle player logout events
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
                             if match:
@@ -531,8 +550,8 @@ class JKChatBridge(commands.Cog):
                                 for cid, (name, _) in self.client_names.items():
                                     if name == player_name:
                                         self.client_names[cid] = (name, None)
-                                        print(f"Player logged out: Updated {cid}: ({name}, None)")
                                         break
+                        # Handle player disconnect events
                         elif "ClientDisconnect:" in line:
                             client_id = line.split("ClientDisconnect: ")[1].strip()
                             name, _ = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
@@ -541,6 +560,7 @@ class JKChatBridge(commands.Cog):
                                 await channel.send(leave_message)
                             if client_id in self.client_names:
                                 del self.client_names[client_id]
+                        # Handle duel win events
                         elif "duel:" in line and "won a duel against" in line:
                             parts = line.split("duel:")[1].split("won a duel against")
                             if len(parts) == 2 and channel:
@@ -550,14 +570,12 @@ class JKChatBridge(commands.Cog):
             except FileNotFoundError:
                 await asyncio.sleep(5)
             except Exception as e:
-                print(f"Log monitoring error: {e}")
                 await asyncio.sleep(5)
-        print("Log monitoring task stopped.")
 
     def start_monitoring(self):
+        """Start the log monitoring task if it's not already running."""
         if not self.monitor_task or self.monitor_task.done():
             self.monitor_task = self.bot.loop.create_task(self.monitor_log())
-            print(f"Monitor task created: {id(self.monitor_task)}")
 
     def parse_chat_line(self, line):
         """Parse a chat line from the log into player name and message."""
@@ -573,6 +591,7 @@ class JKChatBridge(commands.Cog):
 
     async def cog_unload(self):
         """Clean up when the cog is unloaded."""
+        # Stop the monitoring task
         self.monitoring = False
         if self.monitor_task and not self.monitor_task.done():
             self.monitor_task.cancel()
@@ -580,9 +599,10 @@ class JKChatBridge(commands.Cog):
                 await self.monitor_task
             except asyncio.CancelledError:
                 pass
+        # Shut down the thread pool
         self.executor.shutdown(wait=False)
-        print("JKChatBridge cog unloaded.")
 
 async def setup(bot):
+    """Set up the JKChatBridge cog when the bot loads."""
     cog = JKChatBridge(bot)
     await bot.add_cog(cog)
