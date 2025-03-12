@@ -35,7 +35,7 @@ class JKChatBridge(commands.Cog):
 
     async def cog_load(self):
         """Run after bot is fully ready to fetch initial player data."""
-        await self.fetch_player_data()
+        await self.fetch_player_data()  # Update with playerlist on cog load
 
     async def fetch_player_data(self):
         """Fetch all player data (ID, name, username) from rcon playerlist."""
@@ -163,7 +163,7 @@ class JKChatBridge(commands.Cog):
                 pass
         self.client_names.clear()
         self.start_monitoring()
-        await self.fetch_player_data()
+        await self.fetch_player_data()  # Update with playerlist on reload
         await ctx.send("Log monitoring task and player data reloaded.")
 
     @commands.command(name="jkstatus")
@@ -387,14 +387,20 @@ class JKChatBridge(commands.Cog):
                                     print(f"Channel {channel_id} not found!")
                         elif "ClientBegin:" in line:
                             client_id = line.split("ClientBegin: ")[1].strip()
-                            await self.fetch_player_data()  # Refresh on connect
+                            # Extract name from ClientBegin (assuming name follows client_id in some logs)
+                            name_match = re.search(r"ClientUserinfoChanged: \d+ n\\([^\\]+)", line)
+                            player_name = name_match.group(1) if name_match else f"Unknown (ID {client_id})"
+                            player_name = self.remove_color_codes(player_name)
+                            self.client_names[client_id] = (player_name, None)  # Initial entry with no username
+                            print(f"ClientBegin: Added {client_id}: ({player_name}, None) to client_names")
+                            await self.fetch_player_data()  # Update with playerlist after connect
                             name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
                             join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                             print(f"Sending to Discord channel {channel_id}: {join_message}")
                             if channel and not name.endswith("-Bot"):
                                 await channel.send(join_message)
                         elif "Player" in line and "has logged in" in line:
-                            await self.fetch_player_data()  # Refresh on login to capture username
+                            await self.fetch_player_data()  # Update with playerlist on login
                             print(f"Player logged in, refreshed player data: {self.client_names}")
                         elif "ClientDisconnect:" in line:
                             client_id = line.split("ClientDisconnect: ")[1].strip()
