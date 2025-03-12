@@ -28,8 +28,7 @@ class JKChatBridge(commands.Cog):
     - `!jkexec <filename>`: Execute a server config file (Bot Owners/Admins only).
     - `!jkkill <player>`: Kill a player (Bot Owners/Admins only).
     - `!jkkick <player>`: Kick a player (Bot Owners/Admins only).
-    - `!jknextmap`: Call a vote for the next map (JKA Server Admin, Bot Owners, Admins).
-    - `!jkpassvote`: Pass the active vote (JKA Server Admin, Bot Owners, Admins).
+    - `!jknextmap`: Go to the next map (JKA Server Admin, Bot Owners, Admins).
     - `!jkchpasswd <player> <newpassword>`: Change a player's password (Bot Owners/Admins only).
     - `!jkbridge`: Configure the cog (Bot Owner only).
     """
@@ -492,7 +491,7 @@ class JKChatBridge(commands.Cog):
     @commands.command(name="jknextmap")
     @is_jka_server_staff_or_higher()
     async def jknextmap(self, ctx):
-        """Call a vote for the next map.
+        """Go to the next map.
 
         **Usage:** `!jknextmap`
         """
@@ -501,35 +500,35 @@ class JKChatBridge(commands.Cog):
             await ctx.send("RCON settings not fully configured.")
             return
         try:
-            await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "callvote nextmap", rcon_host, rcon_port, rcon_password
+            # Step 1: Send "nextmap" command to get the next map ID
+            nextmap_response = await self.bot.loop.run_in_executor(
+                self.executor, self.send_rcon_command, "nextmap", rcon_host, rcon_port, rcon_password
             )
-            await ctx.send("Vote for next map has been called. Use !jkpassvote to pass the vote.")
-            await self.log_action(f"{ctx.author.name} called a vote for nextmap")
-        except Exception as e:
-            await ctx.send(f"Failed to call nextmap vote: {e}")
-            await self.log_action(f"Error: Failed to call nextmap vote - {e}")
+            response_text = nextmap_response.decode('utf-8', errors='replace')
+            
+            # Step 2: Parse the response to extract the map ID (e.g., "vstr d8")
+            map_id = None
+            for line in response_text.splitlines():
+                if "Cvar nextmap =" in line:
+                    match = re.search(r'Cvar nextmap = "([^"]+)"', line)
+                    if match:
+                        map_id = match.group(1)  # e.g., "vstr d8"
+                        break
+            
+            if not map_id:
+                await ctx.send("Failed to retrieve next map ID.")
+                await self.log_action(f"Error: Failed to retrieve next map ID for {ctx.author.name}")
+                return
 
-    @commands.command(name="jkpassvote")
-    @is_jka_server_staff_or_higher()
-    async def jkpassvote(self, ctx):
-        """Pass the active vote.
-
-        **Usage:** `!jkpassvote`
-        """
-        is_valid, (rcon_host, rcon_port, rcon_password) = await self.validate_rcon_settings()
-        if not is_valid:
-            await ctx.send("RCON settings not fully configured.")
-            return
-        try:
+            # Step 3: Send the "vstr <id>" command to change the map
             await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "passvote", rcon_host, rcon_port, rcon_password
+                self.executor, self.send_rcon_command, map_id, rcon_host, rcon_port, rcon_password
             )
             await ctx.send("Loading next map.")
-            await self.log_action(f"{ctx.author.name} passed the active vote")
+            await self.log_action(f"{ctx.author.name} changed to the next map: {map_id}")
         except Exception as e:
-            await ctx.send(f"Failed to pass the vote: {e}")
-            await self.log_action(f"Error: Failed to pass the vote - {e}")
+            await ctx.send(f"Failed to change to the next map: {e}")
+            await self.log_action(f"Error: Failed to change to the next map for {ctx.author.name} - {e}")
 
     @commands.command(name="jkchpasswd")
     @commands.is_owner()
