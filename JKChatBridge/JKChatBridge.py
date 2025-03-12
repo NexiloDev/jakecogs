@@ -25,7 +25,7 @@ class JKChatBridge(commands.Cog):
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
-        self.client_names = {}  # Store client ID to full name mapping
+        self.client_names = {}  # Now stores {client_id: (name, username)}
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
@@ -133,19 +133,24 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
-            # Send 'status' command via RCON
+            # Send 'playerlist' command via RCON
+            playerlist_response = await self.bot.loop.run_in_executor(
+                self.executor, self.send_rcon_command, "playerlist", rcon_host, rcon_port, rcon_password
+            )
+            playerlist_lines = playerlist_response.decode(errors='replace').splitlines()
+
+            # Parse playerlist response
+            server_name = "Unknown"  # Playerlist doesn't provide this, so we'll fetch separately if needed
+            mod_name = "Unknown"
+            map_name = "Unknown"
+            player_count = "0 humans, 0 bots"  # We'll update this based on playerlist
+            online_client_ids = []
+
+            # Fetch status for server details (since playerlist doesn't include them)
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", rcon_host, rcon_port, rcon_password
             )
             status_lines = status_response.decode(errors='replace').splitlines()
-
-            # Parse status response
-            server_name = "Unknown"
-            mod_name = "Unknown"
-            map_name = "Unknown"
-            player_count = "0 humans, 0 bots"
-            online_client_ids = []
-
             for line in status_lines:
                 if "hostname:" in line:
                     server_name = self.remove_color_codes(line.split("hostname:")[1].strip()).replace("Ç", "").encode().decode('ascii', 'ignore')
@@ -155,21 +160,24 @@ class JKChatBridge(commands.Cog):
                     map_name = line.split("map     :")[1].split()[0].strip()
                 elif "players :" in line:
                     player_count = line.split("players :")[1].strip()
-                elif re.match(r"^\s*\d+\s+\d+\s+\d+\s+.*$", line):
-                    # Player line format: "client_id score ping name"
-                    parts = re.split(r"\s+", line.strip(), maxsplit=4)
-                    if len(parts) >= 4:
-                        client_id = parts[0]
-                        player_name = self.remove_color_codes(parts[3].strip())
-                        online_client_ids.append(client_id)
-                        # Update self.client_names with the name from RCON status
-                        self.client_names[client_id] = player_name
 
-            # Get full names from self.client_names (now updated with RCON data)
+            # Parse playerlist for client IDs, names, and usernames
+            for line in playerlist_lines:
+                if re.match(r"^\d+\s+\S+", line):  # Matches lines starting with a number and a name
+                    parts = re.split(r"\s+", line.strip(), maxsplit=12)
+                    if len(parts) >= 12:
+                        client_id = parts[0]
+                        player_name = self.remove_color_codes(parts[1])
+                        username = parts[11] if parts[11] != "0" else None  # Username is last column, "0" if not logged in
+                        online_client_ids.append(client_id)
+                        # Update self.client_names with name and username
+                        self.client_names[client_id] = (player_name, username)
+
+            # Get full names from self.client_names (now updated with playerlist data)
             players = []
             for client_id in online_client_ids:
-                player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
-                players.append((client_id, player_name))
+                name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
+                players.append((client_id, name))
 
             # Format player list with ID and name
             player_list = "No players online"
@@ -269,28 +277,11 @@ class JKChatBridge(commands.Cog):
 
     def replace_emojis_with_names(self, text):
         """Replace custom Discord emojis with :name: and remove standard Unicode emojis."""
-        # First, replace custom server emojis with :name:
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
-        
-        # Then, remove standard Unicode emojis (from the old emoji_map)
         emoji_map = {
-            "😊": "",
-            "😄": "",
-            "😂": "",
-            "🤣": "",
-            "😉": "",
-            "😛": "",
-            "😢": "",
-            "😡": "",
-            "👍": "",
-            "👎": "",
-            "❤️": "",
-            "💖": "",
-            "😍": "",
-            "🙂": "",
-            "😣": "",
-            "😜": ""
+            "😊": "", "😄": "", "😂": "", "🤣": "", "😉": "", "😛": "", "😢": "", "😡": "",
+            "👍": "", "👎": "", "❤️": "", "💖": "", "😍": "", "🙂": "", "😣": "", "😜": ""
         }
         for unicode_emoji, _ in emoji_map.items():
             text = text.replace(unicode_emoji, "")
@@ -299,19 +290,8 @@ class JKChatBridge(commands.Cog):
     def replace_text_emotes_with_emojis(self, text):
         """Convert common text emoticons from Jedi Academy to Discord emojis."""
         text_emote_map = {
-            ":)": "😊",
-            ":D": "😄",
-            "XD": "😂",
-            "xD": "🤣",
-            ";)": "😉",
-            ":P": "😛",
-            ":(": "😢",
-            ">:(": "😡",
-            ":+1:": "👍",
-            ":-1:": "👎",
-            "<3": "❤️",
-            ":*": "😍",
-            ":S": "😣"
+            ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
+            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣"
         }
         for text_emote, emoji in text_emote_map.items():
             text = text.replace(text_emote, emoji)
@@ -388,29 +368,31 @@ class JKChatBridge(commands.Cog):
                                     print(f"Channel {channel_id} not found!")
                         elif "ClientUserinfoChanged handling info:" in line:
                             client_id = line.split("ClientUserinfoChanged handling info: ")[1].split()[0]
-                            name_match = re.search(r'\\name\\([^\\]+)', line)
+                            name_match = re.search(r'\\n\\([^\\]+)', line)
+                            username_match = re.search(r'\\username\\([^\\]+)', line)
                             if name_match:
                                 player_name = self.remove_color_codes(name_match.group(1))
-                                self.client_names[client_id] = player_name
-                                print(f"Updated name for client {client_id}: {player_name}")
+                                username = username_match.group(1) if username_match else None
+                                # Update with name and username (username None if not logged in)
+                                self.client_names[client_id] = (player_name, username)
+                                print(f"Updated name for client {client_id}: {player_name}, Username: {username}")
                         elif "ClientBegin:" in line:
                             client_id = line.split("ClientBegin: ")[1].strip()
-                            player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
-                            join_message = f"<:jk_connect:1349009924306374756> **{player_name}** has joined the game!"
+                            name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
+                            join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                             print(f"Sending to Discord channel {channel_id}: {join_message}")
-                            if channel and not player_name.endswith("-Bot"):  # Skip bots
+                            if channel and not name.endswith("-Bot"):
                                 await channel.send(join_message)
                         elif "ClientDisconnect:" in line:
                             client_id = line.split("ClientDisconnect: ")[1].strip()
-                            player_name = self.client_names.get(client_id, f"Unknown (ID {client_id})")
-                            leave_message = f"<:jk_disconnect:1349010016044187713> **{player_name}** has disconnected."
+                            name, username = self.client_names.get(client_id, (f"Unknown (ID {client_id})", None))
+                            leave_message = f"<:jk_disconnect:1349010016044187713> **{name}** has disconnected."
                             print(f"Sending to Discord channel {channel_id}: {leave_message}")
-                            if channel and not player_name.endswith("-Bot"):  # Skip bots
+                            if channel and not name.endswith("-Bot"):
                                 await channel.send(leave_message)
                             if client_id in self.client_names:
                                 del self.client_names[client_id]
                         elif "duel:" in line and "won a duel against" in line:
-                            # Parse duel result (e.g., "3-12-2025 2:44 (6:11): duel: ^2§^0ÑØW^2§^0TØ®M^2¹ won a duel against ^7^2=^3[^2C^7u^2M^3]= ^7^5Wacky")
                             parts = line.split("duel:")[1].split("won a duel against")
                             if len(parts) == 2:
                                 winner = self.remove_color_codes(parts[0].strip())
