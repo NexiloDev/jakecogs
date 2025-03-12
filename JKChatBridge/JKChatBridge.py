@@ -338,10 +338,16 @@ class JKChatBridge(commands.Cog):
                 await asyncio.sleep(5)
                 continue
             channel = self.bot.get_channel(channel_id)
-            log_file = os.path.join(log_base_path, f"games_{datetime.now().strftime('%m-%d-%Y')}.log")
+            # Remove leading zeros from month and day
+            now = datetime.now()
+            month = str(now.month)
+            day = str(now.day)
+            year = str(now.year)
+            current_date = f"{month}-{day}-{year}"
+            log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
             try:
-                async with aiofiles.open(log_file, 'r') as f:
-                    await f.seek(0, 2)
+                async with aiofiles.open(log_file_path, 'r') as f:
+                    await f.seek(0, 2)  # Start at the end of the file
                     while self.monitoring:
                         line = await f.readline()
                         if not line:
