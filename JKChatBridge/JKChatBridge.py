@@ -31,6 +31,7 @@ class JKChatBridge(commands.Cog):
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
         )
+        self.filtered_commands = {"jkstatus", "jkbridge", "jk"}  # Commands to filter
         self.start_monitoring()
         print("JKChatBridge cog initialized.")
 
@@ -221,8 +222,16 @@ class JKChatBridge(commands.Cog):
         channel_id = await self.config.discord_channel_id()
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
-        # Skip messages starting with the bot's prefix
-        if message.content.startswith(self.bot.command_prefix):
+        # Get the bot's prefix (handles dynamic prefixes)
+        prefix = self.bot.command_prefix(self.bot, message)
+        if isinstance(prefix, (tuple, list)):
+            prefix = prefix[0]  # Use the first prefix if multiple
+        else:
+            prefix = str(prefix)
+        # Check if the message is a filtered command
+        content = message.content.lower().strip()
+        if any(content == f"{prefix}{cmd}" for cmd in self.filtered_commands):
+            print(f"Skipping RCON for command: {content}")
             return
         discord_username = message.author.display_name
         
