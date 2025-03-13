@@ -576,9 +576,10 @@ class JKChatBridge(commands.Cog):
                         elif "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
-                                logger.debug(f"Chat message detected: player_name={player_name}, message={message}")
+                                logger.debug(f"Detected say line: {line}")
+                                logger.debug(f"Parsed chat: player_name={player_name}, message={message}")
                                 if self.url_pattern.search(message):
-                                    logger.debug("Message contains URL, skipping.")
+                                    logger.debug(f"Message contains URL, skipping: {message}")
                                     continue
                                 message = self.replace_text_emotes_with_emojis(message)
                                 discord_message = f"{custom_emoji} **{player_name}**: {message}"
@@ -614,10 +615,10 @@ class JKChatBridge(commands.Cog):
         say_index = line.find("say: ")
         if say_index != -1:
             chat_part = line[say_index + 5:]
-            colon_index = chat_part.find(": ")
+            colon_index = chat_part.find(": ")  # Fixed typo from colion_index to colon_index
             if colon_index != -1:
                 player_name = chat_part[:colon_index].strip()
-                message = chat_part[colion_index + 2:].strip()
+                message = chat_part[colon_index + 2:].strip()
                 return self.remove_color_codes(player_name), self.remove_color_codes(message)
         return None, None
 
