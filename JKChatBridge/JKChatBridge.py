@@ -106,7 +106,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_lines = status_response.decode(errors='replace').splitlines()
-            logger.debug(f"status response: {status_lines}")
+            logger.debug(f"Raw status response: {status_lines}")  # Added raw data debugging
             temp_client_names = {}
             parsing_players = False
             for line in status_lines:
@@ -117,12 +117,11 @@ class JKChatBridge(commands.Cog):
                     parsing_players = True
                     continue
                 if parsing_players:
-                    parts = re.split(r"\s+", line, 3)
+                    parts = re.split(r"\s+", line, 4)
                     if len(parts) >= 4 and parts[0].isdigit():
                         client_id = parts[0]
-                        # Extract name (last column, may contain spaces)
-                        name_start = line.find(parts[2]) + len(parts[2])
-                        player_name = self.remove_color_codes(line[name_start:].strip())
+                        # Extract name from the last column after splitting
+                        player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
                         temp_client_names[client_id] = player_name
                         logger.debug(f"Parsed status: client_id={client_id}, name={player_name}")
             for client_id, name in temp_client_names.items():
@@ -263,7 +262,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_lines = status_response.decode(errors='replace').splitlines()
-            logger.debug(f"status response in jkstatus: {status_lines}")
+            logger.debug(f"Raw status response in jkstatus: {status_lines}")
 
             server_name = "Unknown"
             mod_name = "Unknown"
@@ -504,7 +503,7 @@ class JKChatBridge(commands.Cog):
     async def monitor_log(self):
         """Monitor the qconsole.log file and send messages to Discord."""
         self.monitoring = True
-        log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
+        log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")  # Corrected path
         logger.debug(f"Monitoring log file: {log_file}")
 
         while self.monitoring:
