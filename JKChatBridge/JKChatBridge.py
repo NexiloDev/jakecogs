@@ -53,7 +53,7 @@ class JKChatBridge(commands.Cog):
 
     async def cog_load(self):
         """Run after the bot is fully ready to fetch initial player data."""
-        await self.refresh_player_data()  # Fetch initial player data on cog load
+        await self.refresh_player_data()
         logger.debug("Cog loaded, initial player data fetched.")
 
     async def refresh_player_data(self):
@@ -87,7 +87,10 @@ class JKChatBridge(commands.Cog):
                     logger.debug(f"Parsed playerlist: client_id={client_id}, name={player_name}, username={username}")
             logger.debug(f"Updated client_names after playerlist: {self.client_names}")
 
-            # Step 2: Validate names starting with "Padawan" using status
+            # Step 2: Add delay to ensure server state is stable
+            await asyncio.sleep(0.5)
+
+            # Step 3: Validate names starting with "Padawan" using status
             padawan_ids = [cid for cid, (name, _) in self.client_names.items() if name.startswith("Padawan")]
             if padawan_ids:
                 logger.debug(f"Found players with 'Padawan' names: {padawan_ids}")
@@ -238,7 +241,7 @@ class JKChatBridge(commands.Cog):
                 logger.debug("Monitor task cancelled.")
         self.client_names.clear()
         logger.debug("Cleared client_names.")
-        await self.refresh_player_data()  # Refresh player data on reload
+        await self.refresh_player_data()
         logger.debug(f"client_names after RCON refresh: {self.client_names}")
         self.start_monitoring()
         logger.debug("Started new monitoring task after reload.")
@@ -542,10 +545,16 @@ class JKChatBridge(commands.Cog):
                             match = re.search(r'info: (.+) joined the battle', line)
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
-                                self.client_names.clear()  # Clear to ensure full refresh
+                                self.client_names.clear()
                                 await self.refresh_player_data()
                                 if channel and not player_name.endswith("-Bot"):
-                                    await channel.send(f"<:jk_connect:1349009924306374756> **{player_name}** has joined the game!")
+                                    # Use the updated name from client_names
+                                    client_id = next((cid for cid, (name, _) in self.client_names.items() if name == player_name or name.startswith("Padawan")), None)
+                                    if client_id and client_id in self.client_names:
+                                        updated_name = self.client_names[client_id][0]
+                                        await channel.send(f"<:jk_connect:1349009924306374756> **{updated_name}** has joined the game!")
+                                    else:
+                                        await channel.send(f"<:jk_connect:1349009924306374756> **{player_name}** has joined the game!")
                                 logger.debug(f"Player joined trigger: name={player_name}")
                         # Trigger: Player Logged In
                         elif "Player" in line and "has logged in" in line:
@@ -553,30 +562,45 @@ class JKChatBridge(commands.Cog):
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
                                 username = match.group(2)
-                                self.client_names.clear()  # Clear to ensure full refresh
+                                self.client_names.clear()
                                 await self.refresh_player_data()
                                 if channel:
-                                    await channel.send(f"**{player_name}** has logged in with username **{username}**!")
+                                    client_id = next((cid for cid, (name, _) in self.client_names.items() if name == player_name), None)
+                                    if client_id and client_id in self.client_names:
+                                        updated_name = self.client_names[client_id][0]
+                                        await channel.send(f"**{updated_name}** has logged in with username **{username}**!")
+                                    else:
+                                        await channel.send(f"**{player_name}** has logged in with username **{username}**!")
                                 logger.debug(f"Player logged in trigger: name={player_name}, username={username}")
                         # Trigger: Player Logged Out
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
-                                self.client_names.clear()  # Clear to ensure full refresh
+                                self.client_names.clear()
                                 await self.refresh_player_data()
                                 if channel:
-                                    await channel.send(f"**{player_name}** has logged out.")
+                                    client_id = next((cid for cid, (name, _) in self.client_names.items() if name == player_name), None)
+                                    if client_id and client_id in self.client_names:
+                                        updated_name = self.client_names[client_id][0]
+                                        await channel.send(f"**{updated_name}** has logged out.")
+                                    else:
+                                        await channel.send(f"**{player_name}** has logged out.")
                                 logger.debug(f"Player logged out trigger: name={player_name}")
                         # Trigger: Player Disconnected
                         elif "info: " in line and "disconnected" in line:
                             match = re.search(r'info: (.+) disconnected \(([\d]+)\)', line)
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
-                                self.client_names.clear()  # Clear to ensure full refresh
+                                self.client_names.clear()
                                 await self.refresh_player_data()
                                 if channel and not player_name.endswith("-Bot"):
-                                    await channel.send(f"<:jk_disconnect:1349010016044187713> **{player_name}** has disconnected.")
+                                    client_id = next((cid for cid, (name, _) in self.client_names.items() if name == player_name or name.startswith("Padawan")), None)
+                                    if client_id and client_id in self.client_names:
+                                        updated_name = self.client_names[client_id][0]
+                                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{updated_name}** has disconnected.")
+                                    else:
+                                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{player_name}** has disconnected.")
                                 logger.debug(f"Player disconnected trigger: name={player_name}")
                         # Trigger: Name Change
                         elif "info: (" in line and "is now" in line:
@@ -585,10 +609,15 @@ class JKChatBridge(commands.Cog):
                                 client_id = match.group(1)
                                 old_name = self.remove_color_codes(match.group(2))
                                 new_name = self.remove_color_codes(match.group(3))
-                                self.client_names.clear()  # Clear to ensure full refresh
+                                self.client_names.clear()
                                 await self.refresh_player_data()
                                 if channel:
-                                    await channel.send(f"**{old_name}** is now **{new_name}**!")
+                                    client_id = next((cid for cid, (name, _) in self.client_names.items() if name == new_name), None)
+                                    if client_id and client_id in self.client_names:
+                                        updated_name = self.client_names[client_id][0]
+                                        await channel.send(f"**{old_name}** is now **{updated_name}**!")
+                                    else:
+                                        await channel.send(f"**{old_name}** is now **{new_name}**!")
                                 logger.debug(f"Name change trigger: client_id={client_id}, old_name={old_name}, new_name={new_name}")
                         # Chat Messages
                         elif "say:" in line and "tell:" not in line and "[Discord]" not in line:
