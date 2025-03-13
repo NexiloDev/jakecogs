@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 import glob
 import time
+import subprocess
 
 class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with dynamic log file support for Lugormod.
@@ -33,7 +34,9 @@ class JKChatBridge(commands.Cog):
             rcon_host="127.0.0.1",
             rcon_port=29070,
             rcon_password=None,
-            custom_emoji="<:jk:1219115870928900146>"
+            custom_emoji="<:jk:1219115870928900146>",
+            server_executable="openjkded.x86.exe",
+            start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\START MAIN SERVER.bat"  # Full path to .bat file
         )
         # Create a thread pool to handle RCON commands without blocking the bot
         self.executor = ThreadPoolExecutor(max_workers=2)
@@ -52,6 +55,8 @@ class JKChatBridge(commands.Cog):
         )
         # Start monitoring the game log file for chat and events
         self.start_monitoring()
+        # Start the daily restart scheduler
+        self.restart_task = self.bot.loop.create_task(self.schedule_daily_restart())
 
     async def cog_load(self):
         """Run after the bot is fully ready to fetch initial player data."""
@@ -147,6 +152,18 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Custom emoji set to: {emoji}")
 
     @jkbridge.command()
+    async def setserverexecutable(self, ctx, executable: str):
+        """Set the server executable name (e.g., openjkded.x86.exe)."""
+        await self.config.server_executable.set(executable)
+        await ctx.send(f"Server executable set to: {executable}")
+
+    @jkbridge.command()
+    async def setstartbatchfile(self, ctx, batch_file: str):
+        """Set the .bat file to start the server (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\START MAIN SERVER.bat)."""
+        await self.config.start_batch_file.set(batch_file)
+        await ctx.send(f"Start batch file set to: {batch_file}")
+
+    @jkbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the JK chat bridge."""
         # Retrieve all settings from the config
@@ -156,6 +173,8 @@ class JKChatBridge(commands.Cog):
         rcon_port = await self.config.rcon_port()
         rcon_password = await self.config.rcon_password()
         custom_emoji = await self.config.custom_emoji()
+        server_executable = await self.config.server_executable()
+        start_batch_file = await self.config.start_batch_file()
         # Get the channel name if a channel ID is set
         channel_name = "Not set"
         if discord_channel_id:
@@ -169,7 +188,9 @@ class JKChatBridge(commands.Cog):
             f"RCON Host: {rcon_host or 'Not set'}\n"
             f"RCON Port: {rcon_port or 'Not set'}\n"
             f"RCON Password: {'Set' if rcon_password else 'Not set'}\n"
-            f"Custom Emoji: {custom_emoji or 'Not set'}"
+            f"Custom Emoji: {custom_emoji or 'Not set'}\n"
+            f"Server Executable: {server_executable or 'Not set'}\n"
+            f"Start Batch File: {start_batch_file or 'Not set'}"
         )
         await ctx.send(settings_message)
 
@@ -489,9 +510,7 @@ class JKChatBridge(commands.Cog):
     async def monitor_log(self):
         """Monitor the latest Lugormod log file and send messages to Discord."""
         self.monitoring = True
-        current_log_file = None
-        last_check_time = 0
-        CHECK_INTERVAL = 60  # Check for a new log file every 60 seconds
+        current_log_file = self.get_latest_log_file(await self.config.log_base_path())
 
         while self.monitoring:
             try:
@@ -506,15 +525,6 @@ class JKChatBridge(commands.Cog):
                 # Get the Discord channel to send messages to
                 channel = self.bot.get_channel(channel_id)
 
-                # Periodically check for the latest log file
-                current_time = time.time()
-                if current_time - last_check_time >= CHECK_INTERVAL:
-                    latest_log_file = self.get_latest_log_file(log_base_path)
-                    last_check_time = current_time
-                    if latest_log_file and latest_log_file != current_log_file:
-                        current_log_file = latest_log_file
-                        # If the log file has changed, we'll exit the inner loop to reopen the new file
-
                 if not current_log_file:
                     current_log_file = self.get_latest_log_file(log_base_path)
                     if not current_log_file:
@@ -525,15 +535,6 @@ class JKChatBridge(commands.Cog):
                 async with aiofiles.open(current_log_file, mode='r') as f:
                     await f.seek(0, 2)  # Go to the end of the file
                     while self.monitoring:
-                        # Check for a new log file periodically
-                        current_time = time.time()
-                        if current_time - last_check_time >= CHECK_INTERVAL:
-                            latest_log_file = self.get_latest_log_file(log_base_path)
-                            last_check_time = current_time
-                            if latest_log_file and latest_log_file != current_log_file:
-                                current_log_file = latest_log_file
-                                break  # Exit the inner loop to reopen the new file
-
                         line = await f.readline()
                         if not line:
                             await asyncio.sleep(0.1)
@@ -615,6 +616,7 @@ class JKChatBridge(commands.Cog):
                                 loser = self.remove_color_codes(loser_text)
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
             except FileNotFoundError:
+                current_log_file = self.get_latest_log_file(log_base_path)
                 await asyncio.sleep(5)
             except Exception as e:
                 await asyncio.sleep(5)
@@ -638,12 +640,18 @@ class JKChatBridge(commands.Cog):
 
     async def cog_unload(self):
         """Clean up when the cog is unloaded."""
-        # Stop the monitoring task
+        # Stop the monitoring task and restart scheduler
         self.monitoring = False
         if self.monitor_task and not self.monitor_task.done():
             self.monitor_task.cancel()
             try:
                 await self.monitor_task
+            except asyncio.CancelledError:
+                pass
+        if self.restart_task and not self.restart_task.done():
+            self.restart_task.cancel()
+            try:
+                await self.restart_task
             except asyncio.CancelledError:
                 pass
         # Shut down the thread pool
@@ -669,6 +677,84 @@ class JKChatBridge(commands.Cog):
             await ctx.send(f"Executed configuration file: {filename}")
         except Exception as e:
             await ctx.send(f"Failed to execute {filename}: {e}")
+
+    async def schedule_daily_restart(self):
+        """Schedule daily restart announcements and server restart at 1:52 AM for testing."""
+        while True:
+            now = datetime.now()
+            # Target 1:52 AM today (or tomorrow if we've passed 1:52 AM)
+            today = now.date()
+            target_time = datetime.combine(today, datetime.strptime("01:52:00", "%H:%M:%S").time())
+            if now > target_time:
+                target_time = target_time.replace(day=target_time.day + 1)
+            wait_seconds = (target_time - now).total_seconds()
+
+            await asyncio.sleep(wait_seconds)
+
+            # 1:51:00 AM - 1 minute warning
+            if await self.validate_rcon_settings() and await self.config.discord_channel_id():
+                channel = self.bot.get_channel(await self.config.discord_channel_id())
+                if channel:
+                    await channel.send("⚠️ **Server Restart Warning**: The server will restart in 1 minute (1:52 AM) as part of the daily reset.")
+                await self.bot.loop.run_in_executor(
+                    self.executor, self.send_rcon_command, "say ^1⚠️ ^7Server will restart in 1 minute (1:52 AM) for daily reset!", 
+                    await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+                )
+
+            # 1:51:30 AM - 30 seconds warning
+            await asyncio.sleep(30)
+            if await self.validate_rcon_settings() and await self.config.discord_channel_id():
+                channel = self.bot.get_channel(await self.config.discord_channel_id())
+                if channel:
+                    await channel.send("⏰ **Server Restart**: 30 seconds remaining until restart (1:52 AM).")
+                await self.bot.loop.run_in_executor(
+                    self.executor, self.send_rcon_command, "say ^1⏰ ^7Server restarting in 30 seconds (1:52 AM)!", 
+                    await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+                )
+
+            # 1:52:00 AM - Perform shutdown and restart
+            await asyncio.sleep(30)
+            if await self.validate_rcon_settings():
+                try:
+                    # Step 1: Shut down the server process
+                    server_executable = await self.config.server_executable()
+                    subprocess.run(["taskkill", "/IM", server_executable, "/F"], check=True)
+                    await asyncio.sleep(10)  # 10-second delay after shutdown
+
+                    # Step 2: Start the server using the .bat file
+                    start_batch_file = await self.config.start_batch_file()
+                    subprocess.run(["start", "", start_batch_file], shell=True, check=True)
+                    await asyncio.sleep(10)  # 10-second delay before finding new log file
+
+                    # Step 3: Switch to the new log file
+                    log_base_path = await self.config.log_base_path()
+                    new_log_file = self.get_latest_log_file(log_base_path)
+                    if new_log_file:
+                        self.monitoring = False
+                        if self.monitor_task and not self.monitor_task.done():
+                            self.monitor_task.cancel()
+                            try:
+                                await self.monitor_task
+                            except asyncio.CancelledError:
+                                pass
+                        self.monitoring = True
+                        self.start_monitoring()
+                        if await self.config.discord_channel_id():
+                            channel = self.bot.get_channel(await self.config.discord_channel_id())
+                            if channel:
+                                await channel.send("✅ **Server Restart Complete**: The server has restarted, and the bot is now monitoring the new log file.")
+                except subprocess.CalledProcessError as e:
+                    if await self.config.discord_channel_id():
+                        channel = self.bot.get_channel(await self.config.discord_channel_id())
+                        if channel:
+                            await channel.send(f"❌ **Restart Failed**: Error shutting down or starting server - {e}. Please check the configuration.")
+                except Exception as e:
+                    if await self.config.discord_channel_id():
+                        channel = self.bot.get_channel(await self.config.discord_channel_id())
+                        if channel:
+                            await channel.send(f"❌ **Restart Failed**: Unexpected error - {e}. Please check the configuration.")
+
+from datetime import timedelta
 
 async def setup(bot):
     """Set up the JKChatBridge cog when the bot loads."""
