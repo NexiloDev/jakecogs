@@ -36,7 +36,7 @@ class JKChatBridge(commands.Cog):
             rcon_password=None,
             custom_emoji="<:jk:1219115870928900146>",
             server_executable="openjkded.x86.exe",
-            start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\START MAIN SERVER.bat"
+            start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\start_jka_server.bat"  # Updated to new .bat file name
         )
         # Create a thread pool to handle RCON commands without blocking the bot
         self.executor = ThreadPoolExecutor(max_workers=2)
@@ -159,7 +159,7 @@ class JKChatBridge(commands.Cog):
 
     @jkbridge.command()
     async def setstartbatchfile(self, ctx, batch_file: str):
-        """Set the .bat file to start the server (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\START MAIN SERVER.bat)."""
+        """Set the .bat file to start the server (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\start_jka_server.bat)."""
         await self.config.start_batch_file.set(batch_file)
         await ctx.send(f"Start batch file set to: {batch_file}")
 
