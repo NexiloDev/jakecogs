@@ -551,6 +551,18 @@ class JKChatBridge(commands.Cog):
                                     updated_name = self.client_names.get(client_id, ("Unknown", None))[0]
                                     await channel.send(f"<:jk_connect:1349009924306374756> **{updated_name}** has joined the game!")
                                 logger.debug(f"Player joined trigger: client_id={client_id}")
+                        # Trigger: Player Logged In (to update player data)
+                        elif "Player" in line and "has logged in" in line:
+                            match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged in', line)
+                            if match:
+                                player_name = self.remove_color_codes(match.group(1))
+                                username = match.group(2)
+                                logger.debug(f"Player logged in trigger: name={player_name}, username={username}")
+                                # Add a delay to ensure server state is stable
+                                await asyncio.sleep(2.0)
+                                self.client_names.clear()
+                                await self.refresh_player_data()
+                                logger.debug(f"client_names after login refresh: {self.client_names}")
                         # Trigger: Player Logged Out (keeping for completeness, though no message)
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
@@ -615,7 +627,7 @@ class JKChatBridge(commands.Cog):
         say_index = line.find("say: ")
         if say_index != -1:
             chat_part = line[say_index + 5:]
-            colon_index = chat_part.find(": ")  # Fixed typo from colion_index to colon_index
+            colon_index = chat_part.find(": ")
             if colon_index != -1:
                 player_name = chat_part[:colon_index].strip()
                 message = chat_part[colon_index + 2:].strip()
