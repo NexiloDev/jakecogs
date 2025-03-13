@@ -49,6 +49,7 @@ class JKChatBridge(commands.Cog):
             re.IGNORECASE
         )
         self.last_logout = None
+        self.last_logout_client_id = None  # Store the client ID of the last logout
         self.start_monitoring()
         self.restart_task = self.bot.loop.create_task(self.schedule_daily_restart())
 
@@ -82,7 +83,6 @@ class JKChatBridge(commands.Cog):
                 if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
                     client_id = self.remove_color_codes(parts[0])
                     player_name = self.remove_color_codes(parts[1])
-                    # Look for username as the last non-numeric part
                     username = None
                     for part in reversed(parts[2:]):
                         if part and not part.isdigit():
@@ -155,7 +155,6 @@ class JKChatBridge(commands.Cog):
     async def setlogbasepath(self, ctx, path: str):
         """Set the base path for the qconsole.log file (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod)."""
         await self.config.log_base_path.set(path)
-        # Restart the monitoring task to apply the new path
         if self.monitor_task and not self.monitor_task.done():
             logger.debug("Cancelling existing monitor task due to log base path change.")
             self.monitoring = False
@@ -252,9 +251,8 @@ class JKChatBridge(commands.Cog):
                 logger.debug("Monitor task cancelled.")
         self.client_names.clear()
         logger.debug("Cleared client_names.")
-        # Fetch RCON data before starting monitoring to ensure correct names
-        await self.fetch_status_data()  # Fetch IDs and names first
-        await self.fetch_player_data()  # Then fetch usernames
+        await self.fetch_status_data()
+        await self.fetch_player_data()
         self.start_monitoring()
         logger.debug("Started new monitoring task after reload.")
         logger.debug(f"client_names after reload: {self.client_names}")
@@ -557,7 +555,7 @@ class JKChatBridge(commands.Cog):
                         if "ClientConnect:" in line:
                             client_id = line.split("ClientConnect: ")[1].strip()
                             name = None
-                            for _ in range(10):  # Increase range to catch ClientBegin
+                            for _ in range(10):
                                 next_line = await f.readline()
                                 if not next_line:
                                     break
@@ -572,14 +570,13 @@ class JKChatBridge(commands.Cog):
                                     if name_match:
                                         name = self.remove_color_codes(name_match.group(1))
                                 elif "ClientBegin:" in next_line:
-                                    break  # Stop after ClientBegin
+                                    break
                             if name and client_id not in self.client_names:
                                 self.client_names[client_id] = (name, None)
                                 join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                                 if channel and not name.endswith("-Bot"):
                                     await channel.send(join_message)
                                 logger.debug(f"Player connected: client_id={client_id}, name={name}")
-                            # Cross-check with RCON to ensure correctness
                             await self.fetch_status_data()
                             if client_id in self.client_names:
                                 self.client_names[client_id] = (self.client_names[client_id][0], self.client_names[client_id][1])
@@ -622,20 +619,21 @@ class JKChatBridge(commands.Cog):
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
                                 self.last_logout = player_name
-                                found = False
+                                # Find the client ID associated with this player
+                                self.last_logout_client_id = None
                                 for cid, (name, _) in list(self.client_names.items()):
                                     if name == player_name:
+                                        self.last_logout_client_id = cid
                                         self.client_names[cid] = (name, None)
-                                        found = True
                                         break
-                                if not found:
+                                if not self.last_logout_client_id:
                                     await self.fetch_status_data()
                                     for cid, (name, _) in list(self.client_names.items()):
                                         if name == player_name:
+                                            self.last_logout_client_id = cid
                                             self.client_names[cid] = (name, None)
-                                            found = True
                                             break
-                                logger.debug(f"Player logged out: name={player_name}")
+                                logger.debug(f"Player logged out: name={player_name}, client_id={self.last_logout_client_id}")
                         # Name Change
                         elif "info: (" in line and "is now" in line:
                             match = re.search(r'info: \( (\d+)\) (.+) is now (.+)', line)
@@ -643,22 +641,25 @@ class JKChatBridge(commands.Cog):
                                 client_id = match.group(1)
                                 old_name = self.remove_color_codes(match.group(2))
                                 new_name = self.remove_color_codes(match.group(3))
-                                if self.last_logout != old_name:
+                                # Ignore name change if it follows a logout for the same player
+                                if self.last_logout == old_name and self.last_logout_client_id == client_id:
+                                    logger.debug(f"Ignoring name change after logout: client_id={client_id}, old_name={old_name}, new_name={new_name}")
+                                    continue
+                                if client_id in self.client_names:
+                                    _, username = self.client_names[client_id]
+                                    self.client_names[client_id] = (new_name, username)
+                                else:
+                                    await self.fetch_status_data()
                                     if client_id in self.client_names:
                                         _, username = self.client_names[client_id]
                                         self.client_names[client_id] = (new_name, username)
                                     else:
-                                        await self.fetch_status_data()
+                                        await self.fetch_player_data()
                                         if client_id in self.client_names:
                                             _, username = self.client_names[client_id]
                                             self.client_names[client_id] = (new_name, username)
                                         else:
-                                            await self.fetch_player_data()
-                                            if client_id in self.client_names:
-                                                _, username = self.client_names[client_id]
-                                                self.client_names[client_id] = (new_name, username)
-                                            else:
-                                                self.client_names[client_id] = (new_name, None)
+                                            self.client_names[client_id] = (new_name, None)
                                 logger.debug(f"Name change: client_id={client_id}, old_name={old_name}, new_name={new_name}")
                         # Chat Messages
                         elif "say:" in line and "tell:" not in line and "[Discord]" not in line:
