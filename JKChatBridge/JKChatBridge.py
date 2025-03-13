@@ -54,8 +54,8 @@ class JKChatBridge(commands.Cog):
 
     async def cog_load(self):
         """Run after the bot is fully ready to fetch initial player data."""
-        await self.fetch_player_data()
-        await self.fetch_status_data()
+        await self.fetch_status_data()  # Fetch IDs and names first
+        await self.fetch_player_data()  # Then fetch usernames
         logger.debug("Cog loaded, initial player data fetched.")
 
     async def fetch_player_data(self, ctx=None):
@@ -125,7 +125,6 @@ class JKChatBridge(commands.Cog):
                     parts = re.split(r"\s+", line, 4)
                     if len(parts) >= 4 and parts[0].isdigit():
                         client_id = parts[0]
-                        # Extract name from the fourth column
                         player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
                         temp_client_names[client_id] = player_name
                         logger.debug(f"Parsed status: client_id={client_id}, name={player_name}")
@@ -156,7 +155,18 @@ class JKChatBridge(commands.Cog):
     async def setlogbasepath(self, ctx, path: str):
         """Set the base path for the qconsole.log file (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod)."""
         await self.config.log_base_path.set(path)
-        await ctx.send(f"Log base path set to: {path}")
+        # Restart the monitoring task to apply the new path
+        if self.monitor_task and not self.monitor_task.done():
+            logger.debug("Cancelling existing monitor task due to log base path change.")
+            self.monitoring = False
+            self.monitor_task.cancel()
+            try:
+                await self.monitor_task
+            except asyncio.CancelledError:
+                logger.debug("Monitor task cancelled.")
+        self.start_monitoring()
+        logger.debug("Started new monitoring task after log base path change.")
+        await ctx.send(f"Log base path set to: {path}. Monitoring task restarted.")
 
     @jkbridge.command()
     async def setchannel(self, ctx, channel: discord.TextChannel):
@@ -242,10 +252,11 @@ class JKChatBridge(commands.Cog):
                 logger.debug("Monitor task cancelled.")
         self.client_names.clear()
         logger.debug("Cleared client_names.")
+        # Fetch RCON data before starting monitoring to ensure correct names
+        await self.fetch_status_data()  # Fetch IDs and names first
+        await self.fetch_player_data()  # Then fetch usernames
         self.start_monitoring()
-        logger.debug("Started new monitoring task.")
-        await self.fetch_player_data(ctx)
-        await self.fetch_status_data()
+        logger.debug("Started new monitoring task after reload.")
         logger.debug(f"client_names after reload: {self.client_names}")
         await ctx.send("Log monitoring task and player data reloaded.")
 
@@ -260,8 +271,8 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
-            await self.fetch_player_data(ctx)
             await self.fetch_status_data()
+            await self.fetch_player_data()
             logger.debug(f"client_names before jkstatus display: {self.client_names}")
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
@@ -508,7 +519,7 @@ class JKChatBridge(commands.Cog):
     async def monitor_log(self):
         """Monitor the qconsole.log file and send messages to Discord."""
         self.monitoring = True
-        log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")  # Corrected to exact path
+        log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
         logger.debug(f"Monitoring log file: {log_file}")
 
         while self.monitoring:
@@ -562,7 +573,7 @@ class JKChatBridge(commands.Cog):
                                     if name_match:
                                         name = self.remove_color_codes(name_match.group(1))
                                         break
-                            if name:
+                            if name and client_id not in self.client_names:
                                 self.client_names[client_id] = (name, None)
                                 join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                                 if channel and not name.endswith("-Bot"):
@@ -591,7 +602,6 @@ class JKChatBridge(commands.Cog):
                                         found = True
                                         break
                                 if not found:
-                                    # Try to find the client ID using status data
                                     await self.fetch_status_data()
                                     for cid, (name, _) in list(self.client_names.items()):
                                         if name == player_name:
@@ -601,7 +611,7 @@ class JKChatBridge(commands.Cog):
                                 if not found:
                                     self.client_names[f"temp_{player_name}"] = (player_name, username)
                                 logger.debug(f"Player logged in: name={player_name}, username={username}")
-                            await self.fetch_player_data()  # Refresh to ensure username is updated
+                            await self.fetch_player_data()
                         # Player Logout
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
@@ -685,7 +695,6 @@ class JKChatBridge(commands.Cog):
 
     def parse_chat_line(self, line):
         """Parse a chat line from the log into player name and message."""
-        # Example: "2025-03-13 14:38:53 say: ^8J^7ake: o.o"
         say_index = line.find("say: ")
         if say_index != -1:
             chat_part = line[say_index + 5:]
