@@ -557,7 +557,7 @@ class JKChatBridge(commands.Cog):
                         if "ClientConnect:" in line:
                             client_id = line.split("ClientConnect: ")[1].strip()
                             name = None
-                            for _ in range(5):
+                            for _ in range(10):  # Increase range to catch ClientBegin
                                 next_line = await f.readline()
                                 if not next_line:
                                     break
@@ -567,18 +567,22 @@ class JKChatBridge(commands.Cog):
                                     name_match = re.search(r"Going from CS_FREE to CS_CONNECTED for (.+)", next_line)
                                     if name_match:
                                         name = self.remove_color_codes(name_match.group(1).strip())
-                                        break
                                 elif "ClientUserinfoChanged:" in next_line:
                                     name_match = re.search(r"n\\([^\\]+)", next_line)
                                     if name_match:
                                         name = self.remove_color_codes(name_match.group(1))
-                                        break
+                                elif "ClientBegin:" in next_line:
+                                    break  # Stop after ClientBegin
                             if name and client_id not in self.client_names:
                                 self.client_names[client_id] = (name, None)
                                 join_message = f"<:jk_connect:1349009924306374756> **{name}** has joined the game!"
                                 if channel and not name.endswith("-Bot"):
                                     await channel.send(join_message)
                                 logger.debug(f"Player connected: client_id={client_id}, name={name}")
+                            # Cross-check with RCON to ensure correctness
+                            await self.fetch_status_data()
+                            if client_id in self.client_names:
+                                self.client_names[client_id] = (self.client_names[client_id][0], self.client_names[client_id][1])
                         # Player Disconnect
                         elif "ClientDisconnect:" in line:
                             client_id = line.split("ClientDisconnect: ")[1].strip()
