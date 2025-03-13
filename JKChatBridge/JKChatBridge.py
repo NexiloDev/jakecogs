@@ -682,9 +682,11 @@ class JKChatBridge(commands.Cog):
         """Schedule daily restart announcements and server restart at midnight."""
         while True:
             now = datetime.now()
-            next_midnight = (now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).time()
-            wait_seconds = (datetime.combine(now.date(), next_midnight) - now).total_seconds()
+            # Calculate time until next midnight (12:00:00 AM)
+            next_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            wait_seconds = (next_midnight - now).total_seconds()
 
+            # Wait until midnight
             await asyncio.sleep(wait_seconds)
 
             # 12:00:00 AM - 1 minute warning
@@ -693,23 +695,27 @@ class JKChatBridge(commands.Cog):
                 if channel:
                     await channel.send("⚠️ **Server Restart Warning**: The server will restart in 1 minute as part of the daily reset.")
                 await self.bot.loop.run_in_executor(
-                    self.executor, self.send_rcon_command, "say ^1Server will restart in 1 minute for daily reset!", 
+                    self.executor, self.send_rcon_command, "say ^1Server will restart in 1 minute for daily reset!",
                     await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
                 )
 
-            # 12:00:30 AM - 30 seconds warning
+            # Wait 30 seconds for the 30-second warning
             await asyncio.sleep(30)
+
+            # 12:00:30 AM - 30 seconds warning
             if await self.validate_rcon_settings() and await self.config.discord_channel_id():
                 channel = self.bot.get_channel(await self.config.discord_channel_id())
                 if channel:
                     await channel.send("⏰ **Server Restart**: 30 seconds remaining until restart.")
                 await self.bot.loop.run_in_executor(
-                    self.executor, self.send_rcon_command, "say ^1Server restarting in 30 seconds!", 
+                    self.executor, self.send_rcon_command, "say ^1Server restarting in 30 seconds!",
                     await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
                 )
 
-            # 12:01:00 AM - Perform shutdown and restart
+            # Wait 30 seconds for the restart
             await asyncio.sleep(30)
+
+            # 12:01:00 AM - Perform shutdown and restart
             if await self.validate_rcon_settings():
                 try:
                     # Step 1: Shut down the server process
