@@ -7,6 +7,8 @@ import socket
 from concurrent.futures import ThreadPoolExecutor
 import re
 from datetime import datetime
+import glob
+import time
 
 class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with dynamic log file support for Lugormod.
@@ -472,9 +474,25 @@ class JKChatBridge(commands.Cog):
         """Remove Jedi Academy color codes (e.g., ^1, ^7) from text."""
         return re.sub(r'\^\d', '', text)
 
+    def get_latest_log_file(self, log_base_path):
+        """Find the most recent log file in the log_base_path directory."""
+        if not log_base_path:
+            return None
+        # Look for files matching the pattern games_*.log
+        log_files = glob.glob(os.path.join(log_base_path, "games_*.log"))
+        if not log_files:
+            return None
+        # Sort files by modification time (most recent first)
+        log_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+        return log_files[0]
+
     async def monitor_log(self):
         """Monitor the latest Lugormod log file and send messages to Discord."""
         self.monitoring = True
+        current_log_file = None
+        last_check_time = 0
+        CHECK_INTERVAL = 60  # Check for a new log file every 60 seconds
+
         while self.monitoring:
             try:
                 # Get settings for log monitoring
@@ -488,15 +506,34 @@ class JKChatBridge(commands.Cog):
                 # Get the Discord channel to send messages to
                 channel = self.bot.get_channel(channel_id)
 
-                # Determine the current log file based on the date
-                now = datetime.now()
-                current_date = f"{now.month}-{now.day}-{now.year}"
-                log_file_path = os.path.join(log_base_path, f"games_{current_date}.log")
+                # Periodically check for the latest log file
+                current_time = time.time()
+                if current_time - last_check_time >= CHECK_INTERVAL:
+                    latest_log_file = self.get_latest_log_file(log_base_path)
+                    last_check_time = current_time
+                    if latest_log_file and latest_log_file != current_log_file:
+                        current_log_file = latest_log_file
+                        # If the log file has changed, we'll exit the inner loop to reopen the new file
+
+                if not current_log_file:
+                    current_log_file = self.get_latest_log_file(log_base_path)
+                    if not current_log_file:
+                        await asyncio.sleep(5)
+                        continue
 
                 # Open and monitor the log file
-                async with aiofiles.open(log_file_path, mode='r') as f:
+                async with aiofiles.open(current_log_file, mode='r') as f:
                     await f.seek(0, 2)  # Go to the end of the file
                     while self.monitoring:
+                        # Check for a new log file periodically
+                        current_time = time.time()
+                        if current_time - last_check_time >= CHECK_INTERVAL:
+                            latest_log_file = self.get_latest_log_file(log_base_path)
+                            last_check_time = current_time
+                            if latest_log_file and latest_log_file != current_log_file:
+                                current_log_file = latest_log_file
+                                break  # Exit the inner loop to reopen the new file
+
                         line = await f.readline()
                         if not line:
                             await asyncio.sleep(0.1)
