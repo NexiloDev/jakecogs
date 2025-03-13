@@ -49,15 +49,59 @@ class JKChatBridge(commands.Cog):
             re.IGNORECASE
         )
         self.last_logout = None
-        self.last_logout_client_id = None  # Store the client ID of the last logout
+        self.last_logout_client_id = None
         self.start_monitoring()
         self.restart_task = self.bot.loop.create_task(self.schedule_daily_restart())
 
     async def cog_load(self):
         """Run after the bot is fully ready to fetch initial player data."""
-        await self.fetch_status_data()  # Fetch IDs and names first
-        await self.fetch_player_data()  # Then fetch usernames
+        await self.fetch_and_validate_player_data()  # Fetch and validate player data on cog load
         logger.debug("Cog loaded, initial player data fetched.")
+
+    async def fetch_and_validate_player_data(self):
+        """Fetch player data using RCON playerlist, then validate names with RCON status if needed."""
+        # Step 1: Fetch initial data from playerlist
+        await self.fetch_player_data()
+        
+        # Step 2: Check for names starting with "Padawan" and validate with RCON status
+        padawan_ids = [cid for cid, (name, _) in self.client_names.items() if name.startswith("Padawan")]
+        if padawan_ids:
+            logger.debug(f"Found players with 'Padawan' names: {padawan_ids}")
+            try:
+                status_response = await self.bot.loop.run_in_executor(
+                    self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+                )
+                status_lines = status_response.decode(errors='replace').splitlines()
+                logger.debug(f"Raw status response for validation: {status_lines}")
+                temp_client_names = {}
+                parsing_players = False
+                for line in status_lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if "score ping" in line:  # Header line for player list
+                        parsing_players = True
+                        continue
+                    if parsing_players:
+                        parts = re.split(r"\s+", line, 4)
+                        if len(parts) >= 4 and parts[0].isdigit():
+                            client_id = parts[0]
+                            player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
+                            temp_client_names[client_id] = player_name
+                            logger.debug(f"Parsed status for validation: client_id={client_id}, name={player_name}")
+                # Update names if necessary
+                for client_id in padawan_ids:
+                    if client_id in temp_client_names:
+                        status_name = temp_client_names[client_id]
+                        if not status_name.startswith("Padawan"):
+                            _, username = self.client_names[client_id]
+                            self.client_names[client_id] = (status_name, username)
+                            logger.debug(f"Updated name from Padawan to {status_name} for client_id={client_id}")
+                        else:
+                            logger.debug(f"Name remains Padawan for client_id={client_id} after status check")
+            except Exception as e:
+                logger.error(f"Error in validating Padawan names with status: {e}")
+        logger.debug(f"Final client_names after validation: {self.client_names}")
 
     async def fetch_player_data(self, ctx=None):
         """Fetch player data (ID, name, username) from the game server using the RCON 'playerlist' command."""
@@ -74,7 +118,7 @@ class JKChatBridge(commands.Cog):
             )
             response_text = playerlist_response.decode(errors='replace')
             logger.debug(f"playerlist response: {response_text}")
-            temp_client_names = {}
+            self.client_names.clear()  # Clear existing data before fetching new
             for line in response_text.splitlines():
                 line = line.strip()
                 if not line or "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
@@ -88,55 +132,11 @@ class JKChatBridge(commands.Cog):
                         if part and not part.isdigit():
                             username = part
                             break
-                    temp_client_names[client_id] = (player_name, username)
+                    self.client_names[client_id] = (player_name, username)
                     logger.debug(f"Parsed playerlist: client_id={client_id}, name={player_name}, username={username}")
-            for client_id, (name, username) in temp_client_names.items():
-                if client_id in self.client_names:
-                    existing_name, _ = self.client_names[client_id]
-                    self.client_names[client_id] = (existing_name, username if username else self.client_names[client_id][1])
-                else:
-                    self.client_names[client_id] = (name, username)
             logger.debug(f"Updated client_names after playerlist: {self.client_names}")
         except Exception as e:
             logger.error(f"Error in fetch_player_data: {e}")
-
-    async def fetch_status_data(self):
-        """Fetch player data (ID, name) from the game server using the RCON 'status' command."""
-        if not await self.validate_rcon_settings():
-            logger.warning("RCON settings not configured, skipping fetch_status_data.")
-            return
-
-        try:
-            status_response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-            )
-            status_lines = status_response.decode(errors='replace').splitlines()
-            logger.debug(f"Raw status response: {status_lines}")
-            temp_client_names = {}
-            parsing_players = False
-            for line in status_lines:
-                line = line.strip()
-                if not line:
-                    continue
-                if "score ping" in line:  # Header line for player list
-                    parsing_players = True
-                    continue
-                if parsing_players:
-                    parts = re.split(r"\s+", line, 4)
-                    if len(parts) >= 4 and parts[0].isdigit():
-                        client_id = parts[0]
-                        player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
-                        temp_client_names[client_id] = player_name
-                        logger.debug(f"Parsed status: client_id={client_id}, name={player_name}")
-            for client_id, name in temp_client_names.items():
-                if client_id in self.client_names:
-                    _, username = self.client_names[client_id]
-                    self.client_names[client_id] = (name, username)
-                else:
-                    self.client_names[client_id] = (name, None)
-            logger.debug(f"Updated client_names after status: {self.client_names}")
-        except Exception as e:
-            logger.error(f"Error in fetch_status_data: {e}")
 
     async def validate_rcon_settings(self):
         """Check if RCON settings are fully configured."""
@@ -251,16 +251,15 @@ class JKChatBridge(commands.Cog):
                 logger.debug("Monitor task cancelled.")
         self.client_names.clear()
         logger.debug("Cleared client_names.")
-        await self.fetch_status_data()
-        await self.fetch_player_data()
+        await self.fetch_and_validate_player_data()  # Fetch and validate player data on reload
+        logger.debug(f"client_names after RCON refresh: {self.client_names}")
         self.start_monitoring()
         logger.debug("Started new monitoring task after reload.")
-        logger.debug(f"client_names after reload: {self.client_names}")
         await ctx.send("Log monitoring task and player data reloaded.")
 
     @commands.command(name="jkstatus")
     async def status(self, ctx):
-        """Display detailed server status with emojis. Accessible to all users.
+        """Display detailed server status with emojis using stored player data. Accessible to all users.
 
         **Usage:** `!jkstatus`
         """
@@ -269,9 +268,7 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
-            await self.fetch_status_data()
-            await self.fetch_player_data()
-            logger.debug(f"client_names before jkstatus display: {self.client_names}")
+            # Fetch server metadata only (not player data)
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
@@ -293,6 +290,8 @@ class JKChatBridge(commands.Cog):
                 elif "players :" in line:
                     player_count = line.split("players :")[1].strip()
 
+            # Use stored client_names for player list
+            logger.debug(f"Using client_names for jkstatus: {self.client_names}")
             players = [(cid, f"{self.client_names[cid][0]}{' (' + self.client_names[cid][1] + ')' if self.client_names[cid][1] else ''}")
                        for cid in self.client_names.keys() if not cid.startswith("temp_")]
             player_list = "No players online"
@@ -577,9 +576,6 @@ class JKChatBridge(commands.Cog):
                                 if channel and not name.endswith("-Bot"):
                                     await channel.send(join_message)
                                 logger.debug(f"Player connected: client_id={client_id}, name={name}")
-                            await self.fetch_status_data()
-                            if client_id in self.client_names:
-                                self.client_names[client_id] = (self.client_names[client_id][0], self.client_names[client_id][1])
                         # Player Disconnect
                         elif "ClientDisconnect:" in line:
                             client_id = line.split("ClientDisconnect: ")[1].strip()
@@ -603,37 +599,34 @@ class JKChatBridge(commands.Cog):
                                         found = True
                                         break
                                 if not found:
-                                    await self.fetch_status_data()
-                                    for cid, (name, _) in list(self.client_names.items()):
-                                        if name == player_name:
-                                            self.client_names[cid] = (player_name, username)
-                                            found = True
-                                            break
-                                if not found:
                                     self.client_names[f"temp_{player_name}"] = (player_name, username)
                                 logger.debug(f"Player logged in: name={player_name}, username={username}")
-                            await self.fetch_player_data()
                         # Player Logout
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
                                 self.last_logout = player_name
-                                # Find the client ID associated with this player
                                 self.last_logout_client_id = None
                                 for cid, (name, _) in list(self.client_names.items()):
                                     if name == player_name:
                                         self.last_logout_client_id = cid
                                         self.client_names[cid] = (name, None)
                                         break
-                                if not self.last_logout_client_id:
-                                    await self.fetch_status_data()
-                                    for cid, (name, _) in list(self.client_names.items()):
-                                        if name == player_name:
-                                            self.last_logout_client_id = cid
-                                            self.client_names[cid] = (name, None)
-                                            break
                                 logger.debug(f"Player logged out: name={player_name}, client_id={self.last_logout_client_id}")
+                        # ClientUserinfoChanged (Prevent name update after logout)
+                        elif "ClientUserinfoChanged:" in line:
+                            match = re.search(r'ClientUserinfoChanged: (\d+) n\\([^\\]+)', line)
+                            if match:
+                                client_id = match.group(1)
+                                new_name = self.remove_color_codes(match.group(2))
+                                if self.last_logout and self.last_logout_client_id == client_id:
+                                    logger.debug(f"Ignoring ClientUserinfoChanged after logout: client_id={client_id}, new_name={new_name}")
+                                    continue
+                                if client_id in self.client_names:
+                                    _, username = self.client_names[client_id]
+                                    self.client_names[client_id] = (new_name, username)
+                                    logger.debug(f"Updated name via ClientUserinfoChanged: client_id={client_id}, new_name={new_name}")
                         # Name Change
                         elif "info: (" in line and "is now" in line:
                             match = re.search(r'info: \( (\d+)\) (.+) is now (.+)', line)
@@ -641,7 +634,6 @@ class JKChatBridge(commands.Cog):
                                 client_id = match.group(1)
                                 old_name = self.remove_color_codes(match.group(2))
                                 new_name = self.remove_color_codes(match.group(3))
-                                # Ignore name change if it follows a logout for the same player
                                 if self.last_logout == old_name and self.last_logout_client_id == client_id:
                                     logger.debug(f"Ignoring name change after logout: client_id={client_id}, old_name={old_name}, new_name={new_name}")
                                     continue
@@ -649,17 +641,7 @@ class JKChatBridge(commands.Cog):
                                     _, username = self.client_names[client_id]
                                     self.client_names[client_id] = (new_name, username)
                                 else:
-                                    await self.fetch_status_data()
-                                    if client_id in self.client_names:
-                                        _, username = self.client_names[client_id]
-                                        self.client_names[client_id] = (new_name, username)
-                                    else:
-                                        await self.fetch_player_data()
-                                        if client_id in self.client_names:
-                                            _, username = self.client_names[client_id]
-                                            self.client_names[client_id] = (new_name, username)
-                                        else:
-                                            self.client_names[client_id] = (new_name, None)
+                                    self.client_names[client_id] = (new_name, None)
                                 logger.debug(f"Name change: client_id={client_id}, old_name={old_name}, new_name={new_name}")
                         # Chat Messages
                         elif "say:" in line and "tell:" not in line and "[Discord]" not in line:
