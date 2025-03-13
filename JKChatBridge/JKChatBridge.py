@@ -422,7 +422,7 @@ class JKChatBridge(commands.Cog):
         if self.url_pattern.search(message_content):
             return
 
-        initial_prefix = f"say ^5{{D}}^7{discord_username}^2: "
+        initial_prefix = f"say ^7{discord_username}^2: "  # Removed ^5{D}
         continuation_prefix = "say "
         max_length = 115
         
@@ -551,28 +551,13 @@ class JKChatBridge(commands.Cog):
                                     updated_name = self.client_names.get(client_id, ("Unknown", None))[0]
                                     await channel.send(f"<:jk_connect:1349009924306374756> **{updated_name}** has joined the game!")
                                 logger.debug(f"Player joined trigger: client_id={client_id}")
-                        # Trigger: Player Logged In
-                        elif "Player" in line and "has logged in" in line:
-                            match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged in', line)
-                            if match:
-                                player_name = self.remove_color_codes(match.group(1))
-                                username = match.group(2)
-                                self.client_names.clear()
-                                await self.refresh_player_data()
-                                if channel:
-                                    updated_name = next((name for cid, (name, _) in self.client_names.items() if name == player_name), player_name)
-                                    await channel.send(f"**{updated_name}** has logged in with username **{username}**!")
-                                logger.debug(f"Player logged in trigger: name={player_name}, username={username}")
-                        # Trigger: Player Logged Out
+                        # Trigger: Player Logged Out (keeping for completeness, though no message)
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
                                 self.client_names.clear()
                                 await self.refresh_player_data()
-                                if channel:
-                                    updated_name = next((name for cid, (name, _) in self.client_names.items() if name == player_name), player_name)
-                                    await channel.send(f"**{updated_name}** has logged out.")
                                 logger.debug(f"Player logged out trigger: name={player_name}")
                         # Trigger: Player Disconnected
                         elif "info: " in line and "disconnected" in line:
@@ -587,19 +572,6 @@ class JKChatBridge(commands.Cog):
                                     if client_id in self.client_names:
                                         del self.client_names[client_id]
                                 logger.debug(f"Player disconnected trigger: name={player_name}, client_id={client_id}")
-                        # Trigger: Name Change
-                        elif "info: (" in line and "is now" in line:
-                            match = re.search(r'info: \( (\d+)\) (.+) is now (.+)', line)
-                            if match:
-                                client_id = match.group(1)
-                                old_name = self.remove_color_codes(match.group(2))
-                                new_name = self.remove_color_codes(match.group(3))
-                                self.client_names.clear()
-                                await self.refresh_player_data()
-                                if channel:
-                                    updated_name = self.client_names.get(client_id, (new_name, None))[0]
-                                    await channel.send(f"**{old_name}** is now **{updated_name}**!")
-                                logger.debug(f"Name change trigger: client_id={client_id}, old_name={old_name}, new_name={new_name}")
                         # Chat Messages
                         elif "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
@@ -645,7 +617,7 @@ class JKChatBridge(commands.Cog):
             colon_index = chat_part.find(": ")
             if colon_index != -1:
                 player_name = chat_part[:colon_index].strip()
-                message = chat_part[colon_index + 2:].strip()
+                message = chat_part[colion_index + 2:].strip()
                 return self.remove_color_codes(player_name), self.remove_color_codes(message)
         return None, None
 
