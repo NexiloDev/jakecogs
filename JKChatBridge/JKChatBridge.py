@@ -82,7 +82,12 @@ class JKChatBridge(commands.Cog):
                 if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
                     client_id = self.remove_color_codes(parts[0])
                     player_name = self.remove_color_codes(parts[1])
-                    username = parts[-1] if (len(parts) >= 6 and (parts[-1].isalpha() or not parts[-1].isdigit())) else None
+                    # Look for username as the last non-numeric part
+                    username = None
+                    for part in reversed(parts[2:]):
+                        if part and not part.isdigit():
+                            username = part
+                            break
                     temp_client_names[client_id] = (player_name, username)
                     logger.debug(f"Parsed playerlist: client_id={client_id}, name={player_name}, username={username}")
             for client_id, (name, username) in temp_client_names.items():
@@ -106,7 +111,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_lines = status_response.decode(errors='replace').splitlines()
-            logger.debug(f"Raw status response: {status_lines}")  # Added raw data debugging
+            logger.debug(f"Raw status response: {status_lines}")
             temp_client_names = {}
             parsing_players = False
             for line in status_lines:
@@ -120,7 +125,7 @@ class JKChatBridge(commands.Cog):
                     parts = re.split(r"\s+", line, 4)
                     if len(parts) >= 4 and parts[0].isdigit():
                         client_id = parts[0]
-                        # Extract name from the last column after splitting
+                        # Extract name from the fourth column
                         player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
                         temp_client_names[client_id] = player_name
                         logger.debug(f"Parsed status: client_id={client_id}, name={player_name}")
@@ -503,7 +508,7 @@ class JKChatBridge(commands.Cog):
     async def monitor_log(self):
         """Monitor the qconsole.log file and send messages to Discord."""
         self.monitoring = True
-        log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")  # Corrected path
+        log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")  # Corrected to exact path
         logger.debug(f"Monitoring log file: {log_file}")
 
         while self.monitoring:
@@ -586,9 +591,9 @@ class JKChatBridge(commands.Cog):
                                         found = True
                                         break
                                 if not found:
-                                    await self.fetch_player_data()
+                                    # Try to find the client ID using status data
                                     await self.fetch_status_data()
-                                    for cid, (name, uname) in list(self.client_names.items()):
+                                    for cid, (name, _) in list(self.client_names.items()):
                                         if name == player_name:
                                             self.client_names[cid] = (player_name, username)
                                             found = True
@@ -596,7 +601,7 @@ class JKChatBridge(commands.Cog):
                                 if not found:
                                     self.client_names[f"temp_{player_name}"] = (player_name, username)
                                 logger.debug(f"Player logged in: name={player_name}, username={username}")
-                            await self.fetch_player_data()
+                            await self.fetch_player_data()  # Refresh to ensure username is updated
                         # Player Logout
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
