@@ -36,7 +36,7 @@ class JKChatBridge(commands.Cog):
             rcon_password=None,
             custom_emoji="<:jk:1219115870928900146>",
             server_executable="openjkded.x86.exe",
-            start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\START MAIN SERVER.bat"  # Full path to .bat file
+            start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\START MAIN SERVER.bat"
         )
         # Create a thread pool to handle RCON commands without blocking the bot
         self.executor = ThreadPoolExecutor(max_workers=2)
@@ -679,40 +679,36 @@ class JKChatBridge(commands.Cog):
             await ctx.send(f"Failed to execute {filename}: {e}")
 
     async def schedule_daily_restart(self):
-        """Schedule daily restart announcements and server restart at 1:52 AM for testing."""
+        """Schedule daily restart announcements and server restart at midnight."""
         while True:
             now = datetime.now()
-            # Target 1:52 AM today (or tomorrow if we've passed 1:52 AM)
-            today = now.date()
-            target_time = datetime.combine(today, datetime.strptime("01:52:00", "%H:%M:%S").time())
-            if now > target_time:
-                target_time = target_time.replace(day=target_time.day + 1)
-            wait_seconds = (target_time - now).total_seconds()
+            next_midnight = (now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).time()
+            wait_seconds = (datetime.combine(now.date(), next_midnight) - now).total_seconds()
 
             await asyncio.sleep(wait_seconds)
 
-            # 1:51:00 AM - 1 minute warning
+            # 12:00:00 AM - 1 minute warning
             if await self.validate_rcon_settings() and await self.config.discord_channel_id():
                 channel = self.bot.get_channel(await self.config.discord_channel_id())
                 if channel:
-                    await channel.send("⚠️ **Server Restart Warning**: The server will restart in 1 minute (1:52 AM) as part of the daily reset.")
+                    await channel.send("⚠️ **Server Restart Warning**: The server will restart in 1 minute as part of the daily reset.")
                 await self.bot.loop.run_in_executor(
-                    self.executor, self.send_rcon_command, "say ^1⚠️ ^7Server will restart in 1 minute (1:52 AM) for daily reset!", 
+                    self.executor, self.send_rcon_command, "say ^1Server will restart in 1 minute for daily reset!", 
                     await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
                 )
 
-            # 1:51:30 AM - 30 seconds warning
+            # 12:00:30 AM - 30 seconds warning
             await asyncio.sleep(30)
             if await self.validate_rcon_settings() and await self.config.discord_channel_id():
                 channel = self.bot.get_channel(await self.config.discord_channel_id())
                 if channel:
-                    await channel.send("⏰ **Server Restart**: 30 seconds remaining until restart (1:52 AM).")
+                    await channel.send("⏰ **Server Restart**: 30 seconds remaining until restart.")
                 await self.bot.loop.run_in_executor(
-                    self.executor, self.send_rcon_command, "say ^1⏰ ^7Server restarting in 30 seconds (1:52 AM)!", 
+                    self.executor, self.send_rcon_command, "say ^1Server restarting in 30 seconds!", 
                     await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
                 )
 
-            # 1:52:00 AM - Perform shutdown and restart
+            # 12:01:00 AM - Perform shutdown and restart
             await asyncio.sleep(30)
             if await self.validate_rcon_settings():
                 try:
@@ -742,7 +738,7 @@ class JKChatBridge(commands.Cog):
                         if await self.config.discord_channel_id():
                             channel = self.bot.get_channel(await self.config.discord_channel_id())
                             if channel:
-                                await channel.send("✅ **Server Restart Complete**: The server has restarted, and the bot is now monitoring the new log file.")
+                                await channel.send("✅ **Server Restart Successful!**")
                 except subprocess.CalledProcessError as e:
                     if await self.config.discord_channel_id():
                         channel = self.bot.get_channel(await self.config.discord_channel_id())
