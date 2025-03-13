@@ -563,14 +563,24 @@ class JKChatBridge(commands.Cog):
                                 self.client_names.clear()
                                 await self.refresh_player_data()
                                 logger.debug(f"client_names after login refresh: {self.client_names}")
-                        # Trigger: Player Logged Out (keeping for completeness, though no message)
+                        # Trigger: Player Logged Out (preserve name if new name is Padawan)
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
+                                # Backup current client_names before refresh
+                                backup_client_names = self.client_names.copy()
                                 self.client_names.clear()
                                 await self.refresh_player_data()
+                                # Restore original name if new name starts with Padawan
+                                for client_id, (new_name, new_username) in list(self.client_names.items()):
+                                    if new_name.startswith("Padawan") and client_id in backup_client_names:
+                                        old_name, old_username = backup_client_names[client_id]
+                                        if not old_name.startswith("Padawan"):
+                                            self.client_names[client_id] = (old_name, old_username)
+                                            logger.debug(f"Restored name for client_id={client_id} from {new_name} to {old_name} due to Padawan detection")
                                 logger.debug(f"Player logged out trigger: name={player_name}")
+                                logger.debug(f"client_names after logout refresh: {self.client_names}")
                         # Trigger: Player Disconnected
                         elif "info: " in line and "disconnected" in line:
                             match = re.search(r'info: (.+) disconnected \(([\d]+)\)', line)
