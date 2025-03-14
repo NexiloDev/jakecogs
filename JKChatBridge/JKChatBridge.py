@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.15"
+    __version__ = "1.0.16"
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -62,10 +62,10 @@ class JKChatBridge(commands.Cog):
             playerlist_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
-            response_text = playerlist_response.decode(errors='replace')
-            logger.debug(f"playerlist response: {response_text}")
+            playerlist_text = playerlist_response.decode(errors='replace')
+            logger.debug(f"RAW playerlist response:\n{playerlist_text}")
             playerlist_data = {}
-            for line in response_text.splitlines():
+            for line in playerlist_text.splitlines():
                 line = line.strip()
                 if not line or "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
                     continue
@@ -92,10 +92,11 @@ class JKChatBridge(commands.Cog):
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
-            status_lines = status_response.decode(errors='replace').splitlines()
+            status_text = status_response.decode(errors='replace')
+            logger.debug(f"RAW status response:\n{status_text}")
             status_names = {}
             parsing_players = False
-            for line in status_lines:
+            for line in status_text.splitlines():
                 if "score ping" in line:
                     parsing_players = True
                     continue
@@ -105,13 +106,16 @@ class JKChatBridge(commands.Cog):
                         client_id = parts[0]
                         player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
                         status_names[client_id] = player_name
+                        logger.debug(f"Parsed from status: ID={client_id}, Name={player_name}")
 
-            # Update self.client_names
+            # Update self.client_names with proper "Padawan" override
             for client_id, (name, username) in playerlist_data.items():
-                if name.lower().startswith("padawan"):
-                    name = status_names.get(client_id, name)  # Use status name if Padawan
-                self.client_names[client_id] = (name, username)
-                logger.debug(f"Updated client_names: ID={client_id}, Name={name}, Username={username}")
+                final_name = name
+                if "padawan" in name.lower():
+                    final_name = status_names.get(client_id, name)  # Override with status name if Padawan
+                    logger.debug(f"Padawan detected for ID={client_id}, overriding with status name: {final_name}")
+                self.client_names[client_id] = (final_name, username)
+                logger.debug(f"Stored in client_names: ID={client_id}, Name={final_name}, Username={username}")
 
         except Exception as e:
             logger.error(f"Error in refresh_player_data: {e}")
@@ -492,10 +496,11 @@ class JKChatBridge(commands.Cog):
                                 for client_id in list(self.pending_joins.keys()):
                                     if self.pending_joins[client_id] is None:
                                         self.pending_joins[client_id] = name
-                                        if not self.is_restarting and not name.endswith("-Bot"):
-                                            await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
-                                        logger.debug(f"Join detected: {name} (ID: {client_id})")
-                                        await self.refresh_player_data()
+                                        await self.refresh_player_data()  # Refresh first
+                                        final_name = self.client_names.get(client_id, (name, None))[0]
+                                        if not self.is_restarting and not final_name.endswith("-Bot"):
+                                            await channel.send(f"<:jk_connect:1349009924306374756> **{final_name} (ID: {client_id})** has joined the game!")
+                                        logger.debug(f"Join detected: {final_name} (ID: {client_id})")
                                         break
                             if self.is_restarting and all(self.pending_joins.get(cid) is not None for cid in self.pending_joins):
                                 await asyncio.sleep(5)
