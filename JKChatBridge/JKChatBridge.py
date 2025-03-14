@@ -11,12 +11,12 @@ import time
 import subprocess
 import logging
 
-# Set up logging (still included, but we'll use print for raw data)
+# Set up logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.18"
+    __version__ = "1.0.19"
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -63,7 +63,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             playerlist_text = playerlist_response.decode(errors='replace')
-            logger.debug(f"RAW playerlist response:\n{playerlist_text}")
+            print(f"RAW playerlist response in refresh_player_data:\n{playerlist_text}")
             playerlist_data = {}
             for line in playerlist_text.splitlines():
                 line = line.strip()
@@ -93,7 +93,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_text = status_response.decode(errors='replace')
-            print(f"RAW status response in refresh_player_data:\n{status_text}")  # Print to console
+            print(f"RAW status response in refresh_player_data:\n{status_text}")
             status_names = {}
             parsing_players = False
             for line in status_text.splitlines():
@@ -101,21 +101,22 @@ class JKChatBridge(commands.Cog):
                     parsing_players = True
                     continue
                 if parsing_players and line.strip():
-                    parts = re.split(r"\s+", line, 4)
-                    if len(parts) >= 4 and parts[0].isdigit():
-                        client_id = parts[0]
-                        player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
-                        status_names[client_id] = player_name
-                        logger.debug(f"Parsed from status: ID={client_id}, Name={player_name}")
+                    # Extract fields using fixed positions based on the header
+                    if len(line) >= 38:  # Ensure line is long enough for name field
+                        client_id = line[0:2].strip()
+                        if client_id.isdigit():
+                            name = line[10:25].strip()  # Name field is roughly columns 10-25
+                            player_name = self.remove_color_codes(name)
+                            status_names[client_id] = player_name
+                            print(f"Parsed from status in refresh_player_data: ID={client_id}, Name={player_name}")
 
             # Update self.client_names with proper "Padawan" override
             for client_id, (name, username) in playerlist_data.items():
-                final_name = name
+                final_name = status_names.get(client_id, name)  # Prefer status name always
                 if "padawan" in name.lower():
-                    final_name = status_names.get(client_id, name)  # Override with status name if Padawan
-                    logger.debug(f"Padawan detected for ID={client_id}, overriding with status name: {final_name}")
+                    print(f"Padawan detected for ID={client_id}, overriding with status name: {final_name}")
                 self.client_names[client_id] = (final_name, username)
-                logger.debug(f"Stored in client_names: ID={client_id}, Name={final_name}, Username={username}")
+                print(f"Stored in client_names: ID={client_id}, Name={final_name}, Username={username}")
 
         except Exception as e:
             logger.error(f"Error in refresh_player_data: {e}")
@@ -229,7 +230,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_text = status_response.decode(errors='replace')
-            print(f"RAW status response in jkstatus:\n{status_text}")  # Print to console
+            print(f"RAW status response in jkstatus:\n{status_text}")
             status_lines = status_text.splitlines()
 
             server_name = "Unknown"
