@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.12"
+    __version__ = "1.0.14"
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -36,18 +36,18 @@ class JKChatBridge(commands.Cog):
         self.monitoring = False
         self.monitor_task = None
         self.refresh_task = None
-        self.client_names = {}
-        self.client_teams = {}
+        self.client_names = {}  # {client_id: (name, username)}
+        self.client_teams = {}  # {client_id: team}
         self.previous_client_names = {}
         self.last_seen = {}
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
         )
-        self.recent_joins = {}
+        self.recent_joins = {}  # {client_id: timestamp}
         self.is_restarting = False
         self.restart_map = None
-        self.pending_joins = {}
+        self.pending_joins = {}  # {client_id: name}
         self.restart_completion_time = None
         self.start_monitoring()
         self.start_refresh_loop()
@@ -57,123 +57,114 @@ class JKChatBridge(commands.Cog):
         await self.refresh_player_data()
         logger.debug("Cog loaded, initial player data fetched.")
 
-    async def refresh_player_data(self):
-        """Refresh player data for disconnect detection and process join announcements."""
-        if not await self.validate_rcon_settings():
-            logger.warning("RCON settings not configured, skipping refresh_player_data.")
-            return
+async def refresh_player_data(self):
+    """Refresh player data for disconnect detection and process join announcements."""
+    if not await self.validate_rcon_settings():
+        logger.warning("RCON settings not configured, skipping refresh_player_data.")
+        return
 
-        try:
-            channel_id = await self.config.discord_channel_id()
-            channel = self.bot.get_channel(channel_id) if channel_id else None
+    try:
+        channel_id = await self.config.discord_channel_id()
+        channel = self.bot.get_channel(channel_id) if channel_id else None
 
-            # Fetch playerlist
-            playerlist_response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-            )
-            response_text = playerlist_response.decode(errors='replace')
-            logger.debug(f"playerlist response: {response_text}")
-            new_client_names = {}
-            for line in response_text.splitlines():
-                line = line.strip()
-                if not line or "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
-                    continue
-                parts = re.split(r"\s+", line)
-                if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
-                    client_id = self.remove_color_codes(parts[0])
-                    name_end = len(parts)
-                    for i in range(1, len(parts)):
-                        if parts[i].isdigit():
-                            name_end = i
-                            break
-                    name_parts = parts[1:name_end]
-                    player_name = self.remove_color_codes(" ".join(name_parts))
-                    username = None
-                    for part in reversed(parts[name_end:]):
-                        if part and not part.isdigit():
-                            username = self.remove_color_codes(part)
-                            break
-                    new_client_names[client_id] = (player_name, username)
-                    logger.debug(f"Parsed from playerlist: ID={client_id}, Name={player_name}, Username={username}")
+        # Fetch playerlist (primary source for full names)
+        playerlist_response = await self.bot.loop.run_in_executor(
+            self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+        )
+        response_text = playerlist_response.decode(errors='replace')
+        logger.debug(f"playerlist response: {response_text}")
+        playerlist_names = {}
+        for line in response_text.splitlines():
+            line = line.strip()
+            if not line or "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
+                continue
+            parts = re.split(r"\s+", line)
+            if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
+                client_id = self.remove_color_codes(parts[0])
+                name_end = len(parts)
+                for i in range(1, len(parts)):
+                    if parts[i].isdigit():
+                        name_end = i
+                        break
+                name_parts = parts[1:name_end]
+                player_name = self.remove_color_codes(" ".join(name_parts))
+                playerlist_names[client_id] = player_name
+                logger.debug(f"Parsed from playerlist: ID={client_id}, Name={player_name}")
 
-            # Update names from status
-            try:
-                status_response = await self.bot.loop.run_in_executor(
-                    self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-                )
-                status_lines = status_response.decode(errors='replace').splitlines()
-                temp_client_names = {}
-                parsing_players = False
-                for line in status_lines:
-                    if "score ping" in line:
-                        parsing_players = True
-                        continue
-                    if parsing_players and line.strip():
-                        parts = re.split(r"\s+", line, 4)
-                        if len(parts) >= 4 and parts[0].isdigit():
-                            client_id = parts[0]
-                            player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
-                            temp_client_names[client_id] = player_name
-                for client_id in new_client_names:
-                    if client_id in temp_client_names:
-                        status_name = temp_client_names[client_id]
-                        old_name, old_username = new_client_names[client_id]
-                        if status_name != old_name:
-                            new_client_names[client_id] = (status_name, old_username)
-                            logger.debug(f"Updated name from status: {old_name} -> {status_name} (ID: {client_id})")
-            except Exception as e:
-                logger.error(f"Failed to fetch status for name validation: {e}")
+        # Fetch status (fallback for current names)
+        status_response = await self.bot.loop.run_in_executor(
+            self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+        )
+        status_lines = status_response.decode(errors='replace').splitlines()
+        status_names = {}
+        parsing_players = False
+        for line in status_lines:
+            if "score ping" in line:
+                parsing_players = True
+                continue
+            if parsing_players and line.strip():
+                parts = re.split(r"\s+", line, 4)
+                if len(parts) >= 4 and parts[0].isdigit():
+                    client_id = parts[0]
+                    player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
+                    status_names[client_id] = player_name
 
-            # Detect name changes
-            for client_id in new_client_names:
-                if client_id in self.client_names:
-                    old_name, old_username = self.client_names[client_id]
-                    new_name, new_username = new_client_names[client_id]
-                    if old_name != new_name and not new_name.endswith("-Bot"):
-                        if channel:
-                            await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{new_name} (ID: {client_id})**!")
-                        logger.debug(f"Name change detected via playerlist: {old_name} -> {new_name} (ID: {client_id})")
+        # Combine names: prefer playerlist, fallback to status if Padawan
+        combined_names = {}
+        for client_id in playerlist_names:
+            playerlist_name = playerlist_names[client_id]
+            if playerlist_name.lower().startswith("padawan"):
+                combined_names[client_id] = status_names.get(client_id, playerlist_name)
+            else:
+                combined_names[client_id] = playerlist_name
 
-            # Detect disconnects
-            if self.previous_client_names and not self.is_restarting:
-                disconnected_clients = set()
-                for client_id, (name, _) in list(self.previous_client_names.items()):
-                    if client_id not in new_client_names and not name.endswith("-Bot"):
-                        if client_id not in disconnected_clients:
-                            if channel:
-                                await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
-                            logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
-                            disconnected_clients.add(client_id)
-                            if client_id in self.client_names:
-                                del self.client_names[client_id]
-                            if client_id in self.recent_joins:
-                                del self.recent_joins[client_id]
-                            if client_id in self.client_teams:
-                                del self.client_teams[client_id]
+        # Update self.client_names with combined names
+        for client_id, name in combined_names.items():
+            if client_id in self.client_names:
+                old_name, old_username = self.client_names[client_id]
+                if old_name != name and not name.endswith("-Bot"):
+                    if channel:
+                        await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{name} (ID: {client_id})**!")
+                    logger.debug(f"Name change detected: {old_name} -> {name} (ID: {client_id})")
+            self.client_names[client_id] = (name, None)  # Update with combined name
 
-            # Process pending joins
-            if self.pending_joins and channel and not self.is_restarting:
-                current_time = datetime.now()
-                suppress_joins = (self.restart_completion_time and 
-                                (current_time - self.restart_completion_time).total_seconds() < 10)
-                for client_id, name in list(self.pending_joins.items()):
-                    if name and client_id in new_client_names and not name.endswith("-Bot"):
-                        team = self.client_teams.get(client_id, 0)
-                        if (team != 3 and
-                            not suppress_joins and
-                            (client_id not in self.recent_joins or 
-                             (current_time - self.recent_joins[client_id]).total_seconds() > 2.0)):
-                            self.recent_joins[client_id] = current_time
-                            await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
-                            logger.debug(f"Join confirmed from log: {name} (ID: {client_id})")
-                        del self.pending_joins[client_id]
+        # Detect disconnects
+        if self.previous_client_names and not self.is_restarting:
+            for client_id, (name, _) in list(self.previous_client_names.items()):
+                if client_id not in combined_names and not name.endswith("-Bot"):
+                    if channel:
+                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
+                    logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
+                    if client_id in self.client_names:
+                        del self.client_names[client_id]
+                    if client_id in self.recent_joins:
+                        del self.recent_joins[client_id]
+                    if client_id in self.client_teams:
+                        del self.client_teams[client_id]
 
-            self.previous_client_names = self.client_names.copy()
-            self.client_names = new_client_names
-            self.last_seen = new_client_names.copy()
-            logger.debug(f"Updated client_names: {self.client_names}")
-        except Exception as e:
-            logger.error(f"Error in refresh_player_data: {e}")
+        # Process pending joins
+        if self.pending_joins and channel and not self.is_restarting:
+            current_time = datetime.now()
+            suppress_joins = (self.restart_completion_time and 
+                            (current_time - self.restart_completion_time).total_seconds() < 10)
+            for client_id, log_name in list(self.pending_joins.items()):
+                if client_id in combined_names and not combined_names[client_id].endswith("-Bot"):
+                    name = combined_names[client_id]
+                    team = self.client_teams.get(client_id, 0)
+                    if (team != 3 and
+                        not suppress_joins and
+                        (client_id not in self.recent_joins or 
+                         (current_time - self.recent_joins[client_id]).total_seconds() > 2.0)):
+                        self.recent_joins[client_id] = current_time
+                        await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
+                        logger.debug(f"Join confirmed: {name} (ID: {client_id})")
+                    del self.pending_joins[client_id]
+
+        self.previous_client_names = self.client_names.copy()
+        self.last_seen = self.client_names.copy()
+        logger.debug(f"Updated client_names: {self.client_names}")
+    except Exception as e:
+        logger.error(f"Error in refresh_player_data: {e}")
 
     async def refresh_loop(self):
         """Periodically refresh player data every 5 seconds."""
@@ -187,10 +178,7 @@ class JKChatBridge(commands.Cog):
 
     async def validate_rcon_settings(self):
         """Check if RCON settings are fully configured."""
-        rcon_host = await self.config.rcon_host()
-        rcon_port = await self.config.rcon_port()
-        rcon_password = await self.config.rcon_password()
-        return all([rcon_host, rcon_port, rcon_password])
+        return all([await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()])
 
     @commands.group(name="jkbridge", aliases=["jk"])
     @commands.is_owner()
@@ -205,10 +193,7 @@ class JKChatBridge(commands.Cog):
         if self.monitor_task and not self.monitor_task.done():
             self.monitoring = False
             self.monitor_task.cancel()
-            try:
-                await self.monitor_task
-            except asyncio.CancelledError:
-                logger.debug("Monitor task cancelled.")
+            await self.monitor_task  # Ensure cleanup
         self.start_monitoring()
         await ctx.send(f"Log base path set to: {path}. Monitoring task restarted.")
 
@@ -257,28 +242,17 @@ class JKChatBridge(commands.Cog):
     @jkbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the JK chat bridge."""
-        log_base_path = await self.config.log_base_path()
-        discord_channel_id = await self.config.discord_channel_id()
-        rcon_host = await self.config.rcon_host()
-        rcon_port = await self.config.rcon_port()
-        rcon_password = await self.config.rcon_password()
-        custom_emoji = await self.config.custom_emoji()
-        server_executable = await self.config.server_executable()
-        start_batch_file = await self.config.start_batch_file()
-        channel_name = "Not set"
-        if discord_channel_id:
-            channel = self.bot.get_channel(discord_channel_id)
-            channel_name = channel.name if channel else "Unknown channel"
+        channel = self.bot.get_channel(await self.config.discord_channel_id()) if await self.config.discord_channel_id() else None
         settings_message = (
             f"**Current Settings:**\n"
-            f"Log Base Path: {log_base_path or 'Not set'}\n"
-            f"Discord Channel: {channel_name} (ID: {discord_channel_id or 'Not set'})\n"
-            f"RCON Host: {rcon_host or 'Not set'}\n"
-            f"RCON Port: {rcon_port or 'Not set'}\n"
-            f"RCON Password: {'Set' if rcon_password else 'Not set'}\n"
-            f"Custom Emoji: {custom_emoji or 'Not set'}\n"
-            f"Server Executable: {server_executable or 'Not set'}\n"
-            f"Start Batch File: {start_batch_file or 'Not set'}"
+            f"Log Base Path: {await self.config.log_base_path() or 'Not set'}\n"
+            f"Discord Channel: {channel.name if channel else 'Not set'} (ID: {await self.config.discord_channel_id() or 'Not set'})\n"
+            f"RCON Host: {await self.config.rcon_host() or 'Not set'}\n"
+            f"RCON Port: {await self.config.rcon_port() or 'Not set'}\n"
+            f"RCON Password: {'Set' if await self.config.rcon_password() else 'Not set'}\n"
+            f"Custom Emoji: {await self.config.custom_emoji() or 'Not set'}\n"
+            f"Server Executable: {await self.config.server_executable() or 'Not set'}\n"
+            f"Start Batch File: {await self.config.start_batch_file() or 'Not set'}"
         )
         await ctx.send(settings_message)
 
@@ -288,16 +262,10 @@ class JKChatBridge(commands.Cog):
         if self.monitor_task and not self.monitor_task.done():
             self.monitoring = False
             self.monitor_task.cancel()
-            try:
-                await self.monitor_task
-            except asyncio.CancelledError:
-                logger.debug("Monitor task cancelled.")
+            await self.monitor_task
         if self.refresh_task and not self.refresh_task.done():
             self.refresh_task.cancel()
-            try:
-                await self.refresh_task
-            except asyncio.CancelledError:
-                logger.debug("Refresh task cancelled.")
+            await self.refresh_task
         self.client_names.clear()
         self.client_teams.clear()
         self.previous_client_names.clear()
@@ -333,7 +301,7 @@ class JKChatBridge(commands.Cog):
 
             for line in status_lines:
                 if "hostname:" in line:
-                    server_name = self.remove_color_codes(line.split("hostname:")[1].strip()).replace("Ç", "").encode().decode('ascii', 'ignore')
+                    server_name = self.remove_color_codes(line.split("hostname:")[1].strip()).encode('ascii', 'ignore').decode()
                 elif "game    :" in line:
                     mod_name = line.split("game    :")[1].strip()
                 elif "map     :" in line:
@@ -342,21 +310,14 @@ class JKChatBridge(commands.Cog):
                     player_count = line.split("players :")[1].strip()
 
             players = [(cid, f"{self.client_names[cid][0]}{' (' + self.client_names[cid][1] + ')' if self.client_names[cid][1] else ''}")
-                       for cid in self.client_names.keys() if not cid.startswith("temp_")]
-            player_list = "No players online"
-            if players:
-                player_lines = [f"{client_id:<3} {name_with_username}" for client_id, name_with_username in players]
-                player_list = "```\n" + "\n".join(player_lines) + "\n```"
+                       for cid in self.client_names.keys()]
+            player_list = "No players online" if not players else "```\n" + "\n".join(f"{cid:<3} {name}" for cid, name in players) + "\n```"
 
-            embed = discord.Embed(
-                title=f"🌌 {server_name} 🌌",
-                color=discord.Color.gold()
-            )
+            embed = discord.Embed(title=f"🌌 {server_name} 🌌", color=discord.Color.gold())
             embed.add_field(name="👥 Players", value=f"{player_count}", inline=True)
             embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
             embed.add_field(name="🎮 Mod", value=f"{mod_name}", inline=True)
             embed.add_field(name="📋 Online Players", value=player_list, inline=False)
-
             await ctx.send(embed=embed)
         except Exception as e:
             logger.error(f"Error in jkstatus: {e}")
@@ -374,10 +335,7 @@ class JKChatBridge(commands.Cog):
             response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, command, await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
-            try:
-                response_text = response.decode('utf-8')
-            except UnicodeDecodeError:
-                response_text = response.decode('cp1252', errors='replace')
+            response_text = response.decode('cp1252', errors='replace')
             response_lines = response_text.splitlines()
         except Exception as e:
             await ctx.send(f"Failed to retrieve player info: {e}")
@@ -394,14 +352,10 @@ class JKChatBridge(commands.Cog):
             else:
                 parts = re.split(r'\s{2,}', line)
                 if len(parts) >= 2:
-                    key = parts[0]
-                    value = parts[-1]
+                    key, value = parts[0], parts[-1]
                 else:
                     continue
-            clean_key = self.remove_color_codes(key)
-            clean_value = self.remove_color_codes(value)
-            if clean_key and clean_value:
-                stats[clean_key] = clean_value
+            stats[self.remove_color_codes(key)] = self.remove_color_codes(value)
 
         if "Id" not in stats and "Username" not in stats:
             await ctx.send(f"Player '{username}' not found.")
@@ -410,25 +364,12 @@ class JKChatBridge(commands.Cog):
         wins = int(stats.get("Duels won", "0"))
         total_duels = int(stats.get("Total duels", "0"))
         losses = max(0, total_duels - wins)
-
         playtime = stats.get("Time", "N/A")
         if ":" in playtime and playtime != "N/A":
-            hours = playtime.split(":")[0]
-            playtime = f"{hours} Hrs"
+            playtime = f"{playtime.split(':')[0]} Hrs"
 
-        player_name = stats.get("Name", username)
-        player_username = stats.get("Username", "N/A")
-        try:
-            player_name = player_name.encode().decode('utf-8', errors='replace')
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            player_name = ''.join(c for c in player_name if ord(c) < 128)
-        embed_title = f"Player Stats for {player_name} *({player_username})*"
-        embed = discord.Embed(
-            title=embed_title,
-            color=discord.Color.blue()
-        )
-        embed.description = "\n"
-
+        player_name = stats.get("Name", username).encode('utf-8', 'replace').decode()
+        embed = discord.Embed(title=f"Player Stats for {player_name} *({stats.get('Username', 'N/A')})*", color=discord.Color.blue())
         embed.add_field(name="⏱️ Playtime", value=playtime, inline=True)
         embed.add_field(name="🔼 Level", value=stats.get("Level", "N/A"), inline=True)
         embed.add_field(name="🛡️ Profession", value=stats.get("Profession", "N/A"), inline=True)
@@ -438,10 +379,7 @@ class JKChatBridge(commands.Cog):
         embed.add_field(name="⚔️ Duels Won", value=str(wins), inline=True)
         embed.add_field(name="⚔️ Duels Lost", value=str(losses), inline=True)
         embed.add_field(name="🗡️ Total Kills", value=stats.get("Kills", "0"), inline=True)
-
-        last_login = stats.get("Last login", "N/A")
-        embed.set_footer(text=f"Last Login: {last_login}")
-
+        embed.set_footer(text=f"Last Login: {stats.get('Last login', 'N/A')}")
         await ctx.send(embed=embed)
 
     @commands.Cog.listener()
@@ -450,34 +388,13 @@ class JKChatBridge(commands.Cog):
         channel_id = await self.config.discord_channel_id()
         if not channel_id or message.channel.id != channel_id or message.author.bot:
             return
-        prefix = await self.bot.command_prefix(self.bot, message)
-        if isinstance(prefix, (tuple, list)):
-            prefix = prefix[0]
-        else:
-            prefix = str(prefix)
+        if message.content.startswith(await self.bot.get_prefix(message)):
+            return
 
-        discord_username = message.author.display_name
-        discord_username = discord_username.replace("’", "'").replace("‘", "'")
-        discord_username = discord_username.replace("“", "\"").replace("”", "\"")
-        discord_username = discord_username.replace("«", "\"").replace("»", "\"")
-        discord_username = discord_username.replace("–", "-").replace("—", "-")
-        discord_username = discord_username.replace("…", "...")
-        
-        message_content = message.content
+        discord_username = message.author.display_name.replace("’", "'").replace("“", '"').replace("–", "-").replace("…", "...")
+        message_content = message.content.replace("’", "'").replace("“", '"').replace("–", "-").replace("…", "...")
         for member in message.mentions:
-            mention_str = f"<@{member.id}>"
-            if mention_str in message_content:
-                message_content = message_content.replace(mention_str, f"@{member.display_name}")
-            nick_mention_str = f"<@!{member.id}>"
-            if nick_mention_str in message_content:
-                message_content = message_content.replace(nick_mention_str, f"@{member.display_name}")
-
-        message_content = message_content.replace("’", "'").replace("‘", "'")
-        message_content = message_content.replace("“", "\"").replace("”", "\"")
-        message_content = message_content.replace("«", "\"").replace("»", "\"")
-        message_content = message_content.replace("–", "-").replace("—", "-")
-        message_content = message_content.replace("…", "...")
-
+            message_content = message_content.replace(f"<@!{member.id}>", f"@{member.display_name}").replace(f"<@{member.id}>", f"@{member.display_name}")
         message_content = self.replace_emojis_with_names(message_content)
 
         if self.url_pattern.search(message_content):
@@ -486,7 +403,6 @@ class JKChatBridge(commands.Cog):
         initial_prefix = f"say ^7{discord_username}^2: "
         continuation_prefix = "say "
         max_length = 115
-        
         chunks = []
         remaining = message_content
         is_first_chunk = True
@@ -495,31 +411,25 @@ class JKChatBridge(commands.Cog):
             if len(remaining) <= current_max_length:
                 chunks.append(remaining)
                 break
-            split_point = remaining.rfind(' ', 0, current_max_length + 1)
-            if split_point == -1:
-                split_point = current_max_length
-            chunk = remaining[:split_point].strip()
-            chunks.append(chunk)
+            split_point = remaining.rfind(' ', 0, current_max_length + 1) or current_max_length
+            chunks.append(remaining[:split_point].strip())
             remaining = remaining[split_point:].strip()
             is_first_chunk = False
 
         if not await self.validate_rcon_settings():
-            await message.channel.send("RCON settings not fully configured. Please contact an admin.")
+            await message.channel.send("RCON settings not fully configured.")
             return
-        
+
         try:
             for i, chunk in enumerate(chunks):
-                if i == 0:
-                    server_command = f"{initial_prefix}{chunk}"
-                else:
-                    server_command = f"{continuation_prefix}{chunk}"
+                server_command = f"{initial_prefix if i == 0 else continuation_prefix}{chunk}"
                 await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password())
                 await asyncio.sleep(0.1)
         except Exception as e:
             await message.channel.send(f"Failed to send to game: {e}")
 
     def replace_emojis_with_names(self, text):
-        """Replace custom Discord emojis with :name: and convert standard Unicode emojis."""
+        """Replace custom Discord emojis and convert standard Unicode emojis."""
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
         emoji_map = {
@@ -528,9 +438,7 @@ class JKChatBridge(commands.Cog):
             "😮": ":o", "😁": "=D", "😆": "xD", "😳": "O.o", "🤓": "B)", "😴": "-_-", "😅": "^^;", "😒": ":/",
             "😘": ":*", "😎": "8)", "😱": "D:", "🤔": ":?", "🥳": "\\o/", "🤗": ">^.^<", "🤪": ":p"
         }
-        for unicode_emoji, text_emote in emoji_map.items():
-            text = text.replace(unicode_emoji, text_emote)
-        return text
+        return ''.join(emoji_map.get(c, c) for c in text)
 
     def replace_text_emotes_with_emojis(self, text):
         """Convert common text emoticons from Jedi Knight to Discord emojis."""
@@ -572,17 +480,16 @@ class JKChatBridge(commands.Cog):
 
         while self.monitoring:
             try:
-                log_base_path = await self.config.log_base_path()
                 channel_id = await self.config.discord_channel_id()
                 custom_emoji = await self.config.custom_emoji()
-                if not all([log_base_path, channel_id, custom_emoji]):
-                    logger.warning(f"Missing configuration: log_base_path={log_base_path}, channel_id={channel_id}, custom_emoji={custom_emoji}")
+                if not all([await self.config.log_base_path(), channel_id, custom_emoji]):
+                    logger.warning("Missing configuration, pausing monitor.")
                     await asyncio.sleep(5)
                     continue
 
                 channel = self.bot.get_channel(channel_id)
                 if not channel:
-                    logger.warning(f"Channel not found for ID: {channel_id}")
+                    logger.warning(f"Channel not found: {channel_id}")
                     await asyncio.sleep(5)
                     continue
 
@@ -599,21 +506,18 @@ class JKChatBridge(commands.Cog):
                             await asyncio.sleep(0.1)
                             continue
                         line = line.strip()
-                        logger.debug(f"Read log line: {line}")
+                        logger.debug(f"Log line: {line}")
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message and not self.url_pattern.search(message):
                                 message = self.replace_text_emotes_with_emojis(message)
-                                discord_message = f"{custom_emoji} **{player_name}**: {message}"
-                                if channel:
-                                    await channel.send(discord_message)
+                                await channel.send(f"{custom_emoji} **{player_name}**: {message}")
                         elif "duel:" in line and "won a duel against" in line:
                             parts = line.split("duel:")[1].split("won a duel against")
-                            if len(parts) == 2 and channel:
+                            if len(parts) == 2:
                                 winner = self.remove_color_codes(parts[0].strip())
                                 loser = self.remove_color_codes(parts[1].strip())
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
-                                logger.debug(f"Duel win: {winner} vs {loser}")
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
                             self.client_names.clear()
@@ -622,9 +526,8 @@ class JKChatBridge(commands.Cog):
                             self.last_seen.clear()
                             self.recent_joins.clear()
                             self.pending_joins.clear()
-                            if channel:
-                                await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
-                            logger.debug("Server shutdown detected (possible map change)")
+                            await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
+                            logger.debug("Server shutdown detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
                         elif "------ Server Initialization ------" in line and not self.is_restarting:
                             self.is_restarting = True
@@ -634,8 +537,7 @@ class JKChatBridge(commands.Cog):
                             self.last_seen.clear()
                             self.recent_joins.clear()
                             self.pending_joins.clear()
-                            if channel:
-                                await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
+                            await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
                             logger.debug("Server initialization detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
                         elif "Server: " in line and self.is_restarting:
@@ -648,8 +550,7 @@ class JKChatBridge(commands.Cog):
                         elif "info: " in line and "joined the battle" in line:
                             parts = line.split("info: ")
                             if len(parts) > 1:
-                                name_part = parts[1].split(" joined the battle")[0].strip()
-                                name = self.remove_color_codes(name_part)
+                                name = self.remove_color_codes(parts[1].split(" joined the battle")[0].strip())
                                 for client_id in self.pending_joins:
                                     if self.pending_joins[client_id] is None:
                                         self.pending_joins[client_id] = name
@@ -657,7 +558,7 @@ class JKChatBridge(commands.Cog):
                                         break
                             if self.is_restarting and all(self.pending_joins.get(cid) is not None for cid in self.pending_joins):
                                 await asyncio.sleep(5)
-                                if channel and self.restart_map:
+                                if self.restart_map:
                                     await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
                                 self.is_restarting = False
                                 self.restart_completion_time = datetime.now()
@@ -666,13 +567,11 @@ class JKChatBridge(commands.Cog):
                         elif "ClientUserinfoChanged:" in line:
                             match = re.search(r"ClientUserinfoChanged: (\d+) (.*)", line)
                             if match:
-                                client_id = match.group(1)
-                                userinfo = match.group(2)
+                                client_id, userinfo = match.group(1), match.group(2)
                                 team_match = re.search(r"\\t\\(\d+)", userinfo)
                                 if team_match:
-                                    team = int(team_match.group(1))
-                                    self.client_teams[client_id] = team
-                                    logger.debug(f"Updated team for ID {client_id}: {team}")
+                                    self.client_teams[client_id] = int(team_match.group(1))
+                                    logger.debug(f"Updated team for ID {client_id}: {self.client_teams[client_id]}")
             except Exception as e:
                 logger.error(f"Error in monitor_log: {e}")
                 await asyncio.sleep(5)
@@ -684,8 +583,7 @@ class JKChatBridge(commands.Cog):
             self.is_restarting = False
             self.restart_map = None
             self.pending_joins.clear()
-            if channel:
-                await channel.send("✅ **Server Integration Resumed**: Restart timed out, resuming normal operation.")
+            await channel.send("✅ **Server Integration Resumed**: Restart timed out, resuming normal operation.")
             logger.debug("Restart flag reset due to timeout")
 
     def start_monitoring(self):
@@ -713,24 +611,13 @@ class JKChatBridge(commands.Cog):
     async def cog_unload(self):
         """Clean up when the cog is unloaded."""
         self.monitoring = False
-        if self.monitor_task and not self.monitor_task.done():
-            self.monitor_task.cancel()
-            try:
-                await self.monitor_task
-            except asyncio.CancelledError:
-                pass
-        if self.refresh_task and not self.refresh_task.done():
-            self.refresh_task.cancel()
-            try:
-                await self.refresh_task
-            except asyncio.CancelledError:
-                pass
-        if self.restart_task and not self.restart_task.done():
-            self.restart_task.cancel()
-            try:
-                await self.restart_task
-            except asyncio.CancelledError:
-                pass
+        for task in [self.monitor_task, self.refresh_task, self.restart_task]:
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         self.executor.shutdown(wait=False)
 
     @commands.command(name="jkexec")
@@ -739,9 +626,8 @@ class JKChatBridge(commands.Cog):
     async def jkexec(self, ctx, filename: str):
         """Execute a server config file via RCON (Bot Owners/Admins only)."""
         if not await self.validate_rcon_settings():
-            await ctx.send("RCON settings not fully configured. Please contact an admin.")
+            await ctx.send("RCON settings not fully configured.")
             return
-
         try:
             await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, f"exec {filename}", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
@@ -755,9 +641,7 @@ class JKChatBridge(commands.Cog):
         while True:
             now = datetime.now()
             next_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-            wait_seconds = (next_midnight - now).total_seconds()
-
-            await asyncio.sleep(wait_seconds)
+            await asyncio.sleep((next_midnight - now).total_seconds())
 
             if await self.validate_rcon_settings() and await self.config.discord_channel_id():
                 channel = self.bot.get_channel(await self.config.discord_channel_id())
@@ -783,30 +667,20 @@ class JKChatBridge(commands.Cog):
 
             if await self.validate_rcon_settings():
                 try:
-                    server_executable = await self.config.server_executable()
-                    subprocess.run(["taskkill", "/IM", server_executable, "/F"], check=True)
+                    subprocess.run(["taskkill", "/IM", await self.config.server_executable(), "/F"], check=True)
+                    await asyncio.sleep(10)
+                    subprocess.run(["start", "", await self.config.start_batch_file()], shell=True, check=True)
                     await asyncio.sleep(10)
 
-                    start_batch_file = await self.config.start_batch_file()
-                    subprocess.run(["start", "", start_batch_file], shell=True, check=True)
-                    await asyncio.sleep(10)
-
-                    log_base_path = await self.config.log_base_path()
-                    log_file = os.path.join(log_base_path, "qconsole.log")
+                    log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
                     if os.path.exists(log_file):
                         self.monitoring = False
                         if self.monitor_task and not self.monitor_task.done():
                             self.monitor_task.cancel()
-                            try:
-                                await self.monitor_task
-                            except asyncio.CancelledError:
-                                pass
+                            await self.monitor_task
                         if self.refresh_task and not self.refresh_task.done():
                             self.refresh_task.cancel()
-                            try:
-                                await self.refresh_task
-                            except asyncio.CancelledError:
-                                pass
+                            await self.refresh_task
                         self.monitoring = True
                         self.start_monitoring()
                         self.start_refresh_loop()
@@ -827,5 +701,4 @@ class JKChatBridge(commands.Cog):
 
 async def setup(bot):
     """Set up the JKChatBridge cog when the bot loads."""
-    cog = JKChatBridge(bot)
-    await bot.add_cog(cog)
+    await bot.add_cog(JKChatBridge(bot))
