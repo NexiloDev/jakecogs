@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.20"
+    __version__ = "1.0.21"
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -52,7 +52,7 @@ class JKChatBridge(commands.Cog):
         logger.debug("Cog loaded.")
 
     async def refresh_player_data(self):
-        """Refresh player data using rcon playerlist and status."""
+        """Refresh player data using rcon playerlist (primary) and status (Padawan override)."""
         if not await self.validate_rcon_settings():
             logger.warning("RCON settings not configured, skipping refresh_player_data.")
             return
@@ -81,7 +81,7 @@ class JKChatBridge(commands.Cog):
                     full_name = self.remove_color_codes(" ".join(name_parts))
                     username_match = re.search(r'\((.*?)\)', full_name)
                     name = full_name.split(' (')[0] if username_match else full_name
-                    username = username_match.group(1) if username_match else None
+                    username = parts[-1] if len(parts) > name_end and not parts[-1].isdigit() else None  # Last field if not numeric
                     playerlist_data[client_id] = (name, username)
                     logger.debug(f"Parsed from playerlist: ID={client_id}, Name={name}, Username={username}")
 
@@ -101,7 +101,6 @@ class JKChatBridge(commands.Cog):
                     parsing_players = True
                     continue
                 if parsing_players and line.strip():
-                    # Extract fields using fixed positions based on the header
                     if len(line) >= 38:  # Ensure line is long enough
                         client_id = line[0:2].strip()
                         if client_id.isdigit():
@@ -112,7 +111,7 @@ class JKChatBridge(commands.Cog):
 
             # Update self.client_names with proper "Padawan" override
             for client_id, (name, username) in playerlist_data.items():
-                final_name = status_names.get(client_id, name)  # Prefer status name always
+                final_name = status_names.get(client_id, name) if "padawan" in name.lower() else name
                 if "padawan" in name.lower():
                     print(f"Padawan detected for ID={client_id}, overriding with status name: {final_name}")
                 self.client_names[client_id] = (final_name, username)
@@ -248,6 +247,7 @@ class JKChatBridge(commands.Cog):
                 elif "players :" in line:
                     player_count = line.split("players :")[1].strip()
 
+            # Use self.client_names directly, including usernames
             players = [(cid, f"{self.client_names[cid][0]}{' (' + self.client_names[cid][1] + ')' if self.client_names[cid][1] else ''}")
                        for cid in self.client_names.keys()]
             player_list = "No players online" if not players else "```\n" + "\n".join(f"{cid:<3} {name}" for cid, name in players) + "\n```"
