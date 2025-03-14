@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.10"  # Updated version for announcement fixes
+    __version__ = "1.0.11"  # Updated version for name and join fixes
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -137,16 +137,15 @@ class JKChatBridge(commands.Cog):
                             if client_id in self.recent_joins:
                                 del self.recent_joins[client_id]
 
-            # Process pending joins
-            if self.pending_joins and channel:
+            # Process pending joins (only outside restarts)
+            if self.pending_joins and channel and not self.is_restarting:
                 for client_id, name in list(self.pending_joins.items()):
-                    if client_id in new_client_names:
-                        if not self.is_restarting and not name.endswith("-Bot"):  # Only announce non-bots outside restarts
-                            current_time = datetime.now()
-                            if client_id not in self.recent_joins or (current_time - self.recent_joins[client_id]).total_seconds() > 2.0:
-                                self.recent_joins[client_id] = current_time
-                                await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
-                                logger.debug(f"Join confirmed from log: {name} (ID: {client_id})")
+                    if name and client_id in new_client_names and not name.endswith("-Bot"):
+                        current_time = datetime.now()
+                        if client_id not in self.recent_joins or (current_time - self.recent_joins[client_id]).total_seconds() > 2.0:
+                            self.recent_joins[client_id] = current_time
+                            await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
+                            logger.debug(f"Join confirmed from log: {name} (ID: {client_id})")
                         del self.pending_joins[client_id]
 
             self.previous_client_names = self.client_names.copy()
@@ -545,7 +544,7 @@ class JKChatBridge(commands.Cog):
         return re.sub(r'\^\d', '', text)
 
     async def monitor_log(self):
-        """Monitor the qconsole.log file for chat, duel events, joins, and server restarts."""
+        """Monitor the qconsole.log file for chat, duel events, joins, name changes, and server restarts."""
         self.monitoring = True
         log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
         logger.debug(f"Monitoring log file: {log_file}")
@@ -640,6 +639,22 @@ class JKChatBridge(commands.Cog):
                                 self.is_restarting = False
                                 self.restart_map = None
                                 logger.debug("Server restart/map change completed")
+                        elif "ClientNamechange:" in line:
+                            parts = line.split("ClientNamechange: ")
+                            if len(parts) > 1:
+                                change_part = parts[1].split(" is now ")
+                                if len(change_part) == 2:
+                                    old_name = self.remove_color_codes(change_part[0].strip())
+                                    new_name = self.remove_color_codes(change_part[1].strip())
+                                    client_id_match = re.search(r"\((\d+)\)", line)
+                                    client_id = client_id_match.group(1) if client_id_match else None
+                                    if client_id and old_name != new_name and not new_name.endswith("-Bot"):
+                                        if channel:
+                                            await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{new_name} (ID: {client_id})**!")
+                                        logger.debug(f"Name change detected: {old_name} -> {new_name} (ID: {client_id})")
+                                        if client_id in self.client_names:
+                                            _, username = self.client_names[client_id]
+                                            self.client_names[client_id] = (new_name, username)
             except Exception as e:
                 logger.error(f"Error in monitor_log: {e}")
                 await asyncio.sleep(5)
