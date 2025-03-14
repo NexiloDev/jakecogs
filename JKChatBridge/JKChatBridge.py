@@ -318,51 +318,54 @@ class JKChatBridge(commands.Cog):
         embed.set_footer(text=f"Last Login: {stats.get('Last login', 'N/A')}")
         await ctx.send(embed=embed)
 
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        """Handle messages from Discord and send them to the game server via RCON."""
-        channel_id = await self.config.discord_channel_id()
-        if not channel_id or message.channel.id != channel_id or message.author.bot:
-            return
-        if message.content.startswith(await self.bot.get_prefix(message)):
-            return
+        @commands.Cog.listener()
+        async def on_message(self, message):
+            """Handle messages from Discord and send them to the game server via RCON."""
+            channel_id = await self.config.discord_channel_id()
+            if not channel_id or message.channel.id != channel_id or message.author.bot:
+                return
+        
+            # Get the list of prefixes and check if the message starts with any of them
+            prefixes = await self.bot.get_prefix(message)
+            if any(message.content.startswith(prefix) for prefix in prefixes):
+                return
 
-        discord_username = message.author.display_name.replace("’", "'").replace("“", '"').replace("–", "-").replace("…", "...")
-        message_content = message.content.replace("’", "'").replace("“", '"').replace("–", "-").replace("…", "...")
-        for member in message.mentions:
-            message_content = message_content.replace(f"<@!{member.id}>", f"@{member.display_name}").replace(f"<@{member.id}>", f"@{member.display_name}")
-        message_content = self.replace_emojis_with_names(message_content)
+            discord_username = message.author.display_name.replace("’", "'").replace("“", '"').replace("–", "-").replace("…", "...")
+            message_content = message.content.replace("’", "'").replace("“", '"').replace("–", "-").replace("…", "...")
+            for member in message.mentions:
+                message_content = message_content.replace(f"<@!{member.id}>", f"@{member.display_name}").replace(f"<@{member.id}>", f"@{member.display_name}")
+            message_content = self.replace_emojis_with_names(message_content)
 
-        if self.url_pattern.search(message_content):
-            return
+            if self.url_pattern.search(message_content):
+                return
 
-        initial_prefix = f"say ^7{discord_username}^2: "
-        continuation_prefix = "say "
-        max_length = 115
-        chunks = []
-        remaining = message_content
-        is_first_chunk = True
-        while remaining:
-            current_max_length = max_length if is_first_chunk else (128 - len(continuation_prefix))
-            if len(remaining) <= current_max_length:
-                chunks.append(remaining)
-                break
-            split_point = remaining.rfind(' ', 0, current_max_length + 1) or current_max_length
-            chunks.append(remaining[:split_point].strip())
-            remaining = remaining[split_point:].strip()
-            is_first_chunk = False
+            initial_prefix = f"say ^7{discord_username}^2: "
+            continuation_prefix = "say "
+            max_length = 115
+            chunks = []
+            remaining = message_content
+            is_first_chunk = True
+            while remaining:
+                current_max_length = max_length if is_first_chunk else (128 - len(continuation_prefix))
+                if len(remaining) <= current_max_length:
+                    chunks.append(remaining)
+                    break
+                split_point = remaining.rfind(' ', 0, current_max_length + 1) or current_max_length
+                chunks.append(remaining[:split_point].strip())
+                remaining = remaining[split_point:].strip()
+                is_first_chunk = False
 
-        if not await self.validate_rcon_settings():
-            await message.channel.send("RCON settings not fully configured.")
-            return
+            if not await self.validate_rcon_settings():
+                await message.channel.send("RCON settings not fully configured.")
+                return
 
-        try:
-            for i, chunk in enumerate(chunks):
-                server_command = f"{initial_prefix if i == 0 else continuation_prefix}{chunk}"
-                await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password())
-                await asyncio.sleep(0.1)
-        except Exception as e:
-            await message.channel.send(f"Failed to send to game: {e}")
+            try:
+                for i, chunk in enumerate(chunks):
+                    server_command = f"{initial_prefix if i == 0 else continuation_prefix}{chunk}"
+                    await self.bot.loop.run_in_executor(self.executor, self.send_rcon_command, server_command, await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password())
+                    await asyncio.sleep(0.1)
+            except Exception as e:
+                await message.channel.send(f"Failed to send to game: {e}")
 
     def replace_emojis_with_names(self, text):
         """Replace custom Discord emojis and convert standard Unicode emojis."""
