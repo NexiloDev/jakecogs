@@ -46,7 +46,7 @@ class JKChatBridge(commands.Cog):
         self.monitor_task = None
         self.refresh_task = None
         self.client_names = {}  # Format: {client_id: (name, username)}
-        self.previous_client_names = {}  # Track previous state for join/disconnect/rename detection
+        self.previous_client_names = {}  # Track previous state
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
@@ -61,106 +61,106 @@ class JKChatBridge(commands.Cog):
         await self.refresh_player_data()
         logger.debug("Cog loaded, initial player data fetched.")
 
-async def refresh_player_data(self):
-    """Refresh all player data using RCON playerlist and validate with status."""
-    if not await self.validate_rcon_settings():
-        logger.warning("RCON settings not configured, skipping refresh_player_data.")
-        return
+    async def refresh_player_data(self):
+        """Refresh all player data using RCON playerlist and validate with status."""
+        if not await self.validate_rcon_settings():
+            logger.warning("RCON settings not configured, skipping refresh_player_data.")
+            return
 
-    try:
-        channel_id = await self.config.discord_channel_id()
-        channel = self.bot.get_channel(channel_id) if channel_id else None
+        try:
+            channel_id = await self.config.discord_channel_id()
+            channel = self.bot.get_channel(channel_id) if channel_id else None
 
-        # Fetch data from playerlist
-        playerlist_response = await self.bot.loop.run_in_executor(
-            self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-        )
-        response_text = playerlist_response.decode(errors='replace')
-        logger.debug(f"playerlist response: {response_text}")
-        new_client_names = {}
-        for line in response_text.splitlines():
-            line = line.strip()
-            if not line or "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
-                continue
-            parts = re.split(r"\s+", line)
-            if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
-                client_id = self.remove_color_codes(parts[0])
-                player_name = self.remove_color_codes(parts[1])
-                username = None
-                for part in reversed(parts[2:]):
-                    if part and not part.isdigit():
-                        username = part
-                        break
-                if client_id in self.client_names:
-                    old_name, old_username = self.client_names[client_id]
-                    if old_name != player_name and not player_name.startswith("Padawan"):  # Simplified name change logic
-                        new_client_names[client_id] = (player_name, username)
-                        if channel:
-                            await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{player_name} (ID: {client_id})**!")
-                        logger.debug(f"Name change detected: {old_name} (ID: {client_id}) -> {player_name}")
-                    else:
-                        new_client_names[client_id] = (old_name, old_username)  # Keep old name if no real change
-                else:
-                    new_client_names[client_id] = (player_name, username)
-
-        # Detect joins and disconnects
-        if self.previous_client_names:
-            for client_id, (name, _) in new_client_names.items():
-                if client_id not in self.previous_client_names:
-                    current_time = datetime.now()
-                    if client_id not in self.recent_joins or (current_time - self.recent_joins[client_id]).total_seconds() > 5.0:
-                        self.recent_joins[client_id] = current_time
-                        if channel:
-                            await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
-                        logger.debug(f"Join detected: {name} (ID: {client_id})")
-            for client_id, (name, _) in self.previous_client_names.items():
-                if client_id not in new_client_names and not name.endswith("-Bot"):
-                    if channel:
-                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
-                    logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
-
-        self.previous_client_names = self.client_names.copy()
-        self.client_names = new_client_names
-        logger.debug(f"Updated client_names: {self.client_names}")
-
-        # Validate "Padawan" names with status
-        await asyncio.sleep(2.0)
-        padawan_ids = [cid for cid, (name, _) in self.client_names.items() if name.startswith("Padawan")]
-        if padawan_ids:
-            status_response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+            # Fetch data from playerlist
+            playerlist_response = await self.bot.loop.run_in_executor(
+                self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
-            status_lines = status_response.decode(errors='replace').splitlines()
-            temp_client_names = {}
-            parsing_players = False
-            for line in status_lines:
-                if "score ping" in line:
-                    parsing_players = True
+            response_text = playerlist_response.decode(errors='replace')
+            logger.debug(f"playerlist response: {response_text}")
+            new_client_names = {}
+            for line in response_text.splitlines():
+                line = line.strip()
+                if not line or "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
                     continue
-                if parsing_players and line.strip():
-                    parts = re.split(r"\s+", line, 4)
-                    if len(parts) >= 4 and parts[0].isdigit():
-                        client_id = parts[0]
-                        player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
-                        temp_client_names[client_id] = player_name
-            for client_id in padawan_ids:
-                if client_id in temp_client_names:
-                    status_name = temp_client_names[client_id]
-                    old_name, old_username = self.client_names[client_id]
-                    if not status_name.startswith("Padawan") and status_name != old_name:
-                        self.client_names[client_id] = (status_name, old_username)
+                parts = re.split(r"\s+", line)
+                if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
+                    client_id = self.remove_color_codes(parts[0])
+                    player_name = self.remove_color_codes(parts[1])
+                    username = None
+                    for part in reversed(parts[2:]):
+                        if part and not part.isdigit():
+                            username = part
+                            break
+                    if client_id in self.client_names:
+                        old_name, old_username = self.client_names[client_id]
+                        if old_name != player_name and not player_name.startswith("Padawan"):
+                            new_client_names[client_id] = (player_name, username)
+                            if channel:
+                                await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{player_name} (ID: {client_id})**!")
+                            logger.debug(f"Name change detected: {old_name} (ID: {client_id}) -> {player_name}")
+                        else:
+                            new_client_names[client_id] = (old_name, old_username)
+                    else:
+                        new_client_names[client_id] = (player_name, username)
+
+            # Detect joins and disconnects
+            if self.previous_client_names:
+                for client_id, (name, _) in new_client_names.items():
+                    if client_id not in self.previous_client_names:
+                        current_time = datetime.now()
+                        if client_id not in self.recent_joins or (current_time - self.recent_joins[client_id]).total_seconds() > 5.0:
+                            self.recent_joins[client_id] = current_time
+                            if channel:
+                                await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
+                            logger.debug(f"Join detected: {name} (ID: {client_id})")
+                for client_id, (name, _) in self.previous_client_names.items():
+                    if client_id not in new_client_names and not name.endswith("-Bot"):
                         if channel:
-                            await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{status_name} (ID: {client_id})**!")
-                        logger.debug(f"Updated Padawan name: {old_name} -> {status_name} (ID: {client_id})")
-    except Exception as e:
-        logger.error(f"Error in refresh_player_data: {e}")
+                            await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
+                        logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
+
+            self.previous_client_names = self.client_names.copy()
+            self.client_names = new_client_names
+            logger.debug(f"Updated client_names: {self.client_names}")
+
+            # Validate "Padawan" names with status
+            await asyncio.sleep(2.0)
+            padawan_ids = [cid for cid, (name, _) in self.client_names.items() if name.startswith("Padawan")]
+            if padawan_ids:
+                status_response = await self.bot.loop.run_in_executor(
+                    self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+                )
+                status_lines = status_response.decode(errors='replace').splitlines()
+                temp_client_names = {}
+                parsing_players = False
+                for line in status_lines:
+                    if "score ping" in line:
+                        parsing_players = True
+                        continue
+                    if parsing_players and line.strip():
+                        parts = re.split(r"\s+", line, 4)
+                        if len(parts) >= 4 and parts[0].isdigit():
+                            client_id = parts[0]
+                            player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
+                            temp_client_names[client_id] = player_name
+                for client_id in padawan_ids:
+                    if client_id in temp_client_names:
+                        status_name = temp_client_names[client_id]
+                        old_name, old_username = self.client_names[client_id]
+                        if not status_name.startswith("Padawan") and status_name != old_name:
+                            self.client_names[client_id] = (status_name, old_username)
+                            if channel:
+                                await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{status_name} (ID: {client_id})**!")
+                            logger.debug(f"Updated Padawan name: {old_name} -> {status_name} (ID: {client_id})")
+        except Exception as e:
+            logger.error(f"Error in refresh_player_data: {e}")
 
     async def refresh_loop(self):
         """Periodically refresh player data every 5 seconds."""
         while True:
             try:
                 await self.refresh_player_data()
-                await asyncio.sleep(5)  # Refresh every 5 seconds
+                await asyncio.sleep(5)
             except Exception as e:
                 logger.error(f"Error in refresh_loop: {e}")
                 await asyncio.sleep(5)
@@ -180,10 +180,9 @@ async def refresh_player_data(self):
 
     @jkbridge.command()
     async def setlogbasepath(self, ctx, path: str):
-        """Set the base path for the qconsole.log file (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\lugormod)."""
+        """Set the base path for the qconsole.log file."""
         await self.config.log_base_path.set(path)
         if self.monitor_task and not self.monitor_task.done():
-            logger.debug("Cancelling existing monitor task due to log base path change.")
             self.monitoring = False
             self.monitor_task.cancel()
             try:
@@ -191,7 +190,6 @@ async def refresh_player_data(self):
             except asyncio.CancelledError:
                 logger.debug("Monitor task cancelled.")
         self.start_monitoring()
-        logger.debug("Started new monitoring task after log base path change.")
         await ctx.send(f"Log base path set to: {path}. Monitoring task restarted.")
 
     @jkbridge.command()
@@ -220,19 +218,19 @@ async def refresh_player_data(self):
 
     @jkbridge.command()
     async def setcustomemoji(self, ctx, emoji: str):
-        """Set the custom emoji for game-to-Discord chat messages (e.g., <:jk:1219115870928900146>)."""
+        """Set the custom emoji for game-to-Discord chat messages."""
         await self.config.custom_emoji.set(emoji)
         await ctx.send(f"Custom emoji set to: {emoji}")
 
     @jkbridge.command()
     async def setserverexecutable(self, ctx, executable: str):
-        """Set the server executable name (e.g., openjkded.x86.exe)."""
+        """Set the server executable name."""
         await self.config.server_executable.set(executable)
         await ctx.send(f"Server executable set to: {executable}")
 
     @jkbridge.command()
     async def setstartbatchfile(self, ctx, batch_file: str):
-        """Set the .bat file to start the server (e.g., C:\\GameServers\\StarWarsJKA\\GameData\\start_jka_server.bat)."""
+        """Set the .bat file to start the server."""
         await self.config.start_batch_file.set(batch_file)
         await ctx.send(f"Start batch file set to: {batch_file}")
 
@@ -267,9 +265,7 @@ async def refresh_player_data(self):
     @jkbridge.command()
     async def reloadmonitor(self, ctx):
         """Force reload the log monitoring task and refresh player data."""
-        logger.debug("Starting reloadmonitor command.")
         if self.monitor_task and not self.monitor_task.done():
-            logger.debug("Cancelling existing monitor task.")
             self.monitoring = False
             self.monitor_task.cancel()
             try:
@@ -277,7 +273,6 @@ async def refresh_player_data(self):
             except asyncio.CancelledError:
                 logger.debug("Monitor task cancelled.")
         if self.refresh_task and not self.refresh_task.done():
-            logger.debug("Cancelling existing refresh task.")
             self.refresh_task.cancel()
             try:
                 await self.refresh_task
@@ -285,35 +280,24 @@ async def refresh_player_data(self):
                 logger.debug("Refresh task cancelled.")
         self.client_names.clear()
         self.previous_client_names.clear()
-        logger.debug("Cleared client_names and previous_client_names.")
         await self.refresh_player_data()
-        logger.debug(f"client_names after RCON refresh: {self.client_names}")
         self.start_monitoring()
         self.start_refresh_loop()
-        logger.debug("Started new monitoring and refresh tasks after reload.")
         await ctx.send("Log monitoring and player data refresh tasks reloaded.")
 
     @commands.command(name="jkstatus")
     async def status(self, ctx):
-        """Display detailed server status with emojis using stored player data. Accessible to all users.
-
-        **Usage:** `!jkstatus`
-        """
+        """Display detailed server status with emojis using stored player data."""
         if not await self.validate_rcon_settings():
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
 
         try:
-            # Refresh player data to ensure latest names are used
             await self.refresh_player_data()
-            logger.debug("Player data refreshed for jkstatus")
-
-            # Fetch server metadata only (not player data)
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_lines = status_response.decode(errors='replace').splitlines()
-            logger.debug(f"Raw status response in jkstatus: {status_lines}")
 
             server_name = "Unknown"
             mod_name = "Unknown"
@@ -330,8 +314,6 @@ async def refresh_player_data(self):
                 elif "players :" in line:
                     player_count = line.split("players :")[1].strip()
 
-            # Use freshly updated client_names for player list
-            logger.debug(f"Using client_names for jkstatus: {self.client_names}")
             players = [(cid, f"{self.client_names[cid][0]}{' (' + self.client_names[cid][1] + ')' if self.client_names[cid][1] else ''}")
                        for cid in self.client_names.keys() if not cid.startswith("temp_")]
             player_list = "No players online"
@@ -355,10 +337,7 @@ async def refresh_player_data(self):
 
     @commands.command(name="jkplayer")
     async def player_info(self, ctx, username: str):
-        """Display player stats for the given username. Accessible to all users.
-
-        **Usage:** `!jkplayer <username>` **Example:** `!jkplayer Padawan`
-        """
+        """Display player stats for the given username."""
         if not await self.validate_rcon_settings():
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
@@ -371,10 +350,7 @@ async def refresh_player_data(self):
             try:
                 response_text = response.decode('utf-8')
             except UnicodeDecodeError:
-                try:
-                    response_text = response.decode('latin-1')
-                except UnicodeDecodeError:
-                    response_text = response.decode('cp1252', errors='replace')
+                response_text = response.decode('cp1252', errors='replace')
             response_lines = response_text.splitlines()
         except Exception as e:
             await ctx.send(f"Failed to retrieve player info: {e}")
@@ -460,9 +436,7 @@ async def refresh_player_data(self):
         discord_username = discord_username.replace("–", "-").replace("—", "-")
         discord_username = discord_username.replace("…", "...")
         
-        # Original message content with mentions processed
         message_content = message.content
-        # Replace mentions with @display_name
         for member in message.mentions:
             mention_str = f"<@{member.id}>"
             if mention_str in message_content:
@@ -482,7 +456,7 @@ async def refresh_player_data(self):
         if self.url_pattern.search(message_content):
             return
 
-        initial_prefix = f"say ^7{discord_username}^2: "  # Removed ^5{D}
+        initial_prefix = f"say ^7{discord_username}^2: "
         continuation_prefix = "say "
         max_length = 115
         
@@ -518,7 +492,7 @@ async def refresh_player_data(self):
             await message.channel.send(f"Failed to send to game: {e}")
 
     def replace_emojis_with_names(self, text):
-        """Replace custom Discord emojis with :name: and remove standard Unicode emojis."""
+        """Replace custom Discord emojis with :name: and convert standard Unicode emojis."""
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
         emoji_map = {
@@ -560,68 +534,68 @@ async def refresh_player_data(self):
             sock.close()
 
     def remove_color_codes(self, text):
-        """Remove Jedi Academy color codes (e.g., ^1, ^7) from text."""
+        """Remove Jedi Academy color codes from text."""
         return re.sub(r'\^\d', '', text)
 
-async def monitor_log(self):
-    """Monitor the qconsole.log file for chat and duel events."""
-    self.monitoring = True
-    log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
-    logger.debug(f"Monitoring log file: {log_file}")
+    async def monitor_log(self):
+        """Monitor the qconsole.log file for chat and duel events."""
+        self.monitoring = True
+        log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
+        logger.debug(f"Monitoring log file: {log_file}")
 
-    while self.monitoring:
-        try:
-            log_base_path = await self.config.log_base_path()
-            channel_id = await self.config.discord_channel_id()
-            custom_emoji = await self.config.custom_emoji()
-            if not all([log_base_path, channel_id, custom_emoji]):
-                logger.warning(f"Missing configuration: log_base_path={log_base_path}, channel_id={channel_id}, custom_emoji={custom_emoji}")
+        while self.monitoring:
+            try:
+                log_base_path = await self.config.log_base_path()
+                channel_id = await self.config.discord_channel_id()
+                custom_emoji = await self.config.custom_emoji()
+                if not all([log_base_path, channel_id, custom_emoji]):
+                    logger.warning(f"Missing configuration: log_base_path={log_base_path}, channel_id={channel_id}, custom_emoji={custom_emoji}")
+                    await asyncio.sleep(5)
+                    continue
+
+                channel = self.bot.get_channel(channel_id)
+                if not channel:
+                    logger.warning(f"Channel not found for ID: {channel_id}")
+                    await asyncio.sleep(5)
+                    continue
+
+                if not os.path.exists(log_file):
+                    logger.error(f"Log file not found: {log_file}")
+                    await asyncio.sleep(5)
+                    continue
+
+                async with aiofiles.open(log_file, mode='r', encoding='latin-1') as f:
+                    await f.seek(0, 2)
+                    while self.monitoring:
+                        line = await f.readline()
+                        if not line:
+                            await asyncio.sleep(0.1)
+                            continue
+                        line = line.strip()
+                        logger.debug(f"Read log line: {line}")
+                        if "say:" in line and "tell:" not in line and "[Discord]" not in line:
+                            player_name, message = self.parse_chat_line(line)
+                            if player_name and message and not self.url_pattern.search(message):
+                                message = self.replace_text_emotes_with_emojis(message)
+                                discord_message = f"{custom_emoji} **{player_name}**: {message}"
+                                if channel:
+                                    await channel.send(discord_message)
+                        elif "duel:" in line and "won a duel against" in line:
+                            parts = line.split("duel:")[1].split("won a duel against")
+                            if len(parts) == 2 and channel:
+                                winner = self.remove_color_codes(parts[0].strip())
+                                loser = self.remove_color_codes(parts[1].strip())
+                                winner_id = loser_id = "Unknown"
+                                for cid, (name, _) in self.client_names.items():
+                                    if name == winner:
+                                        winner_id = cid
+                                    elif name == loser:
+                                        loser_id = cid
+                                await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner} (ID: {winner_id})** won a duel against **{loser} (ID: {loser_id})**!")
+                                logger.debug(f"Duel win: {winner} (ID: {winner_id}) vs {loser} (ID: {loser_id})")
+            except Exception as e:
+                logger.error(f"Error in monitor_log: {e}")
                 await asyncio.sleep(5)
-                continue
-
-            channel = self.bot.get_channel(channel_id)
-            if not channel:
-                logger.warning(f"Channel not found for ID: {channel_id}")
-                await asyncio.sleep(5)
-                continue
-
-            if not os.path.exists(log_file):
-                logger.error(f"Log file not found: {log_file}")
-                await asyncio.sleep(5)
-                continue
-
-            async with aiofiles.open(log_file, mode='r', encoding='latin-1') as f:
-                await f.seek(0, 2)
-                while self.monitoring:
-                    line = await f.readline()
-                    if not line:
-                        await asyncio.sleep(0.1)
-                        continue
-                    line = line.strip()
-                    logger.debug(f"Read log line: {line}")
-                    if "say:" in line and "tell:" not in line and "[Discord]" not in line:
-                        player_name, message = self.parse_chat_line(line)
-                        if player_name and message and not self.url_pattern.search(message):
-                            message = self.replace_text_emotes_with_emojis(message)
-                            discord_message = f"{custom_emoji} **{player_name}**: {message}"
-                            if channel:
-                                await channel.send(discord_message)
-                    elif "duel:" in line and "won a duel against" in line:
-                        parts = line.split("duel:")[1].split("won a duel against")
-                        if len(parts) == 2 and channel:
-                            winner = self.remove_color_codes(parts[0].strip())
-                            loser = self.remove_color_codes(parts[1].strip())
-                            winner_id = loser_id = "Unknown"
-                            for cid, (name, _) in self.client_names.items():
-                                if name == winner:
-                                    winner_id = cid
-                                elif name == loser:
-                                    loser_id = cid
-                            await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner} (ID: {winner_id})** won a duel against **{loser} (ID: {loser_id})**!")
-                            logger.debug(f"Duel win: {winner} (ID: {winner_id}) vs {loser} (ID: {loser_id})")
-        except Exception as e:
-            logger.error(f"Error in monitor_log: {e}")
-            await asyncio.sleep(5)
 
     def start_monitoring(self):
         """Start the log monitoring task if it's not already running."""
@@ -672,10 +646,7 @@ async def monitor_log(self):
     @commands.is_owner()
     @commands.has_permissions(administrator=True)
     async def jkexec(self, ctx, filename: str):
-        """Execute a server config file via RCON (Bot Owners/Admins only).
-
-        **Usage:** `!jkexec <filename>` **Example:** `!jkexec server.cfg`
-        """
+        """Execute a server config file via RCON (Bot Owners/Admins only)."""
         if not await self.validate_rcon_settings():
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
@@ -756,12 +727,12 @@ async def monitor_log(self):
                     if await self.config.discord_channel_id():
                         channel = self.bot.get_channel(await self.config.discord_channel_id())
                         if channel:
-                            await channel.send(f"❌ **Restart Failed**: Error shutting down or starting server - {e}. Please check the configuration.")
+                            await channel.send(f"❌ **Restart Failed**: Error shutting down or starting server - {e}.")
                 except Exception as e:
                     if await self.config.discord_channel_id():
                         channel = self.bot.get_channel(await self.config.discord_channel_id())
                         if channel:
-                            await channel.send(f"❌ **Restart Failed**: Unexpected error - {e}. Please check the configuration.")
+                            await channel.send(f"❌ **Restart Failed**: Unexpected error - {e}.")
 
 async def setup(bot):
     """Set up the JKChatBridge cog when the bot loads."""
