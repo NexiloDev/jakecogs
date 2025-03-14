@@ -11,7 +11,7 @@ import time
 import subprocess
 import logging
 
-# Set up logging
+# Set up logging (still included, but we'll use print for raw data)
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
@@ -93,7 +93,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_text = status_response.decode(errors='replace')
-            logger.debug(f"RAW status response in refresh_player_data:\n{status_text}")
+            print(f"RAW status response in refresh_player_data:\n{status_text}")  # Print to console
             status_names = {}
             parsing_players = False
             for line in status_text.splitlines():
@@ -229,7 +229,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_text = status_response.decode(errors='replace')
-            logger.debug(f"RAW status response in jkstatus:\n{status_text}")
+            print(f"RAW status response in jkstatus:\n{status_text}")  # Print to console
             status_lines = status_text.splitlines()
 
             server_name = "Unknown"
