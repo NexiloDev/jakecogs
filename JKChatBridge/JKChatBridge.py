@@ -489,7 +489,7 @@ class JKChatBridge(commands.Cog):
                         elif "Server: " in line and self.is_restarting:
                             self.restart_map = line.split("Server: ")[1].strip()
                             logger.debug(f"New map detected: {self.restart_map}")
-                            await asyncio.sleep(8)
+                            await asyncio.sleep(10)
                             if self.restart_map:
                                 await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
                             self.is_restarting = False
@@ -524,7 +524,7 @@ class JKChatBridge(commands.Cog):
                                 client_id = match.group(2)
                                 if client_id in self.client_names:  # Only send if player fully joined
                                     stored_name = self.client_names[client_id][0]
-                                    if not self.is_restarting and not stored_name.endswith("-Bot"):
+                                    if not self.is_restarting and not stored_name.endswith("-Bot") and stored_name and stored_name.strip():
                                         await channel.send(f"<:jk_disconnect:1349010016044187713> **{stored_name} (ID: {client_id})** has disconnected.")
                                     logger.debug(f"Disconnect detected: {stored_name} (ID: {client_id})")
                                     del self.client_names[client_id]
