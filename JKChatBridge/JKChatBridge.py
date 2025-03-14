@@ -48,7 +48,7 @@ class JKChatBridge(commands.Cog):
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
         )
-        self.recent_client_begins = {}  # Track recent ClientBegin events: {client_id: timestamp}
+        self.recent_joins = {}  # Track recent join events: {client_id: timestamp}
         self.start_monitoring()
         self.restart_task = self.bot.loop.create_task(self.schedule_daily_restart())
 
@@ -57,8 +57,14 @@ class JKChatBridge(commands.Cog):
         await self.refresh_player_data()
         logger.debug("Cog loaded, initial player data fetched.")
 
-    async def refresh_player_data(self):
-        """Refresh all player data using RCON playerlist and validate with status."""
+    async def refresh_player_data(self, preserve_client_id=None, preserve_name=None, preserve_username=None):
+        """Refresh all player data using RCON playerlist and validate with status.
+        
+        Args:
+            preserve_client_id (str, optional): Client ID to preserve the name for if new name starts with "Padawan".
+            preserve_name (str, optional): The name to preserve for the given client ID.
+            preserve_username (str, optional): The username to preserve for the given client ID.
+        """
         if not await self.validate_rcon_settings():
             logger.warning("RCON settings not configured, skipping refresh_player_data.")
             return
@@ -70,7 +76,7 @@ class JKChatBridge(commands.Cog):
             )
             response_text = playerlist_response.decode(errors='replace')
             logger.debug(f"playerlist response: {response_text}")
-            self.client_names.clear()
+            new_client_names = {}
             for line in response_text.splitlines():
                 line = line.strip()
                 if not line or "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
@@ -84,12 +90,18 @@ class JKChatBridge(commands.Cog):
                         if part and not part.isdigit():
                             username = part
                             break
-                    self.client_names[client_id] = (player_name, username)
+                    # If this client ID is the one to preserve and the new name starts with "Padawan", use the preserved name
+                    if client_id == preserve_client_id and player_name.startswith("Padawan") and preserve_name and not preserve_name.startswith("Padawan"):
+                        new_client_names[client_id] = (preserve_name, preserve_username)
+                        logger.debug(f"Preserved name for client_id={client_id}: {preserve_name} (username={preserve_username}) instead of {player_name}")
+                    else:
+                        new_client_names[client_id] = (player_name, username)
                     logger.debug(f"Parsed playerlist: client_id={client_id}, name={player_name}, username={username}")
+            self.client_names = new_client_names
             logger.debug(f"Updated client_names after playerlist: {self.client_names}")
 
             # Step 2: Add delay to ensure server state is stable
-            await asyncio.sleep(2.0)  # Increased from 1.0 to 2.0 for better stability
+            await asyncio.sleep(2.0)
 
             # Step 3: Validate names starting with "Padawan" using status
             padawan_ids = [cid for cid, (name, _) in self.client_names.items() if name.startswith("Padawan")]
@@ -541,26 +553,36 @@ class JKChatBridge(commands.Cog):
                             continue
                         line = line.strip()
                         logger.debug(f"Read log line: {line}")
-                        # Trigger: Player Joined (using ClientBegin)
-                        if "ClientBegin:" in line:
-                            match = re.search(r'ClientBegin: (\d+)', line)
+                        # Trigger: Player Joined (using "Going from CS_PRIMED to CS_ACTIVE")
+                        if "Going from CS_PRIMED to CS_ACTIVE for" in line:
+                            match = re.search(r'Going from CS_PRIMED to CS_ACTIVE for ([^\s]+)', line)
                             if match:
-                                client_id = match.group(1)
-                                current_time = datetime.now()
-                                # Check for duplicate ClientBegin within 5 seconds
-                                if client_id in self.recent_client_begins and (current_time - self.recent_client_begins[client_id]).total_seconds() < 5.0:
-                                    logger.debug(f"Skipping duplicate ClientBegin for client_id={client_id}")
-                                    continue
-                                self.recent_client_begins[client_id] = current_time
-                                self.client_names.clear()
-                                await self.refresh_player_data()
-                                if channel:
-                                    updated_name = self.client_names.get(client_id, ("Unknown", None))[0]
-                                    if updated_name == "Unknown":
-                                        # Fall back to log line if refresh didn't update in time
-                                        updated_name = self.remove_color_codes(line.split("ClientBegin:")[0].split()[-1]) if "ClientBegin:" in line else "Unknown"
-                                    await channel.send(f"<:jk_connect:1349009924306374756> **{updated_name}** has joined the game!")
-                                logger.debug(f"Player joined trigger: client_id={client_id}, name={updated_name}")
+                                player_name = self.remove_color_codes(match.group(1))
+                                # Find the client ID using the most recent ClientUserinfoChanged
+                                client_id = None
+                                for cid, (name, _) in self.client_names.items():
+                                    if name == player_name:
+                                        client_id = cid
+                                        break
+                                if not client_id:
+                                    # Fallback: Fetch from playerlist if not in client_names yet
+                                    await self.refresh_player_data()
+                                    for cid, (name, _) in self.client_names.items():
+                                        if name == player_name:
+                                            client_id = cid
+                                            break
+                                if client_id:
+                                    current_time = datetime.now()
+                                    # Check for duplicate join within 5 seconds
+                                    if client_id in self.recent_joins and (current_time - self.recent_joins[client_id]).total_seconds() < 5.0:
+                                        logger.debug(f"Skipping duplicate join for client_id={client_id}")
+                                        continue
+                                    self.recent_joins[client_id] = current_time
+                                    await self.refresh_player_data()
+                                    if channel:
+                                        updated_name = self.client_names.get(client_id, (player_name, None))[0]
+                                        await channel.send(f"<:jk_connect:1349009924306374756> **{updated_name}** has joined the game!")
+                                    logger.debug(f"Player joined trigger: client_id={client_id}, name={updated_name}")
                         # Trigger: Player Logged In (to update player data)
                         elif "Player" in line and "has logged in" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged in', line)
@@ -573,14 +595,31 @@ class JKChatBridge(commands.Cog):
                                 self.client_names.clear()
                                 await self.refresh_player_data()
                                 logger.debug(f"client_names after login refresh: {self.client_names}")
-                        # Trigger: Player Logged Out (keeping for completeness, though no message)
+                        # Trigger: Player Logged Out (preserve name if new name is Padawan)
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
-                                self.client_names.clear()
-                                await self.refresh_player_data()
-                                logger.debug(f"Player logged out trigger: name={player_name}")
+                                username = match.group(2)
+                                # Find the client ID for this player
+                                client_id = None
+                                for cid, (name, uname) in self.client_names.items():
+                                    if name == player_name and uname == username:
+                                        client_id = cid
+                                        break
+                                logger.debug(f"Player logged out trigger: name={player_name}, username={username}, client_id={client_id}")
+                                if client_id:
+                                    preserve_name, preserve_username = self.client_names[client_id]
+                                    self.client_names.clear()
+                                    await self.refresh_player_data(
+                                        preserve_client_id=client_id,
+                                        preserve_name=preserve_name,
+                                        preserve_username=preserve_username
+                                    )
+                                else:
+                                    self.client_names.clear()
+                                    await self.refresh_player_data()
+                                logger.debug(f"client_names after logout refresh: {self.client_names}")
                         # Trigger: Player Disconnected
                         elif "info: " in line and "disconnected" in line:
                             match = re.search(r'info: (.+) disconnected \(([\d]+)\)', line)
