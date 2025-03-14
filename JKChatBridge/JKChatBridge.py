@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.22"
+    __version__ = "1.0.23"
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -489,7 +489,7 @@ class JKChatBridge(commands.Cog):
                         elif "Server: " in line and self.is_restarting:
                             self.restart_map = line.split("Server: ")[1].strip()
                             logger.debug(f"New map detected: {self.restart_map}")
-                            await asyncio.sleep(5)
+                            await asyncio.sleep(8)
                             if self.restart_map:
                                 await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
                             self.is_restarting = False
@@ -522,14 +522,14 @@ class JKChatBridge(commands.Cog):
                             if match:
                                 name = self.remove_color_codes(match.group(1))
                                 client_id = match.group(2)
-                                stored_name = self.client_names.get(client_id, (name, None))[0]
-                                if not self.is_restarting and not stored_name.endswith("-Bot"):
-                                    await channel.send(f"<:jk_disconnect:1349010016044187713> **{stored_name} (ID: {client_id})** has disconnected.")
-                                logger.debug(f"Disconnect detected: {stored_name} (ID: {client_id})")
-                                if client_id in self.client_names:
+                                if client_id in self.client_names:  # Only send if player fully joined
+                                    stored_name = self.client_names[client_id][0]
+                                    if not self.is_restarting and not stored_name.endswith("-Bot"):
+                                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{stored_name} (ID: {client_id})** has disconnected.")
+                                    logger.debug(f"Disconnect detected: {stored_name} (ID: {client_id})")
                                     del self.client_names[client_id]
-                                if client_id in self.client_teams:
-                                    del self.client_teams[client_id]
+                                    if client_id in self.client_teams:
+                                        del self.client_teams[client_id]
 
                         # Team update
                         elif "ClientUserinfoChanged:" in line:
@@ -557,7 +557,7 @@ class JKChatBridge(commands.Cog):
     def start_monitoring(self):
         """Start the log monitoring task if it's not already running."""
         if not self.monitor_task or self.monitor_task.done():
-            self.monitor_task = self.bot.loop.create_task(self.monitor_log())
+            self.monitor_task = selfSF.bot.loop.create_task(self.monitor_log())
 
     def parse_chat_line(self, line):
         """Parse a chat line from the log into player name and message."""
