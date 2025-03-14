@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.5"  # Updated version for name fix
+    __version__ = "1.0.6"  # Updated version for duplicate fix
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -78,16 +78,13 @@ class JKChatBridge(commands.Cog):
                 parts = re.split(r"\s+", line)
                 if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
                     client_id = self.remove_color_codes(parts[0])
-                    # Find the first numeric field after client_id
                     name_end = len(parts)
                     for i in range(1, len(parts)):
                         if parts[i].isdigit():
                             name_end = i
                             break
-                    # Take all parts up to the first numeric field as the name
                     name_parts = parts[1:name_end]
                     player_name = self.remove_color_codes(" ".join(name_parts))
-                    # Find the last non-numeric part as username
                     username = None
                     for part in reversed(parts[name_end:]):
                         if part and not part.isdigit():
@@ -132,13 +129,19 @@ class JKChatBridge(commands.Cog):
             if self.previous_client_names:
                 # Disconnects
                 if not self.is_restarting:
-                    for client_id, (name, _) in self.previous_client_names.items():
+                    disconnected_clients = set()  # Track clients we've already announced
+                    for client_id, (name, _) in list(self.previous_client_names.items()):  # Use list to allow modification
                         if client_id not in new_client_names and not name.endswith("-Bot"):
-                            if channel:
-                                await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
-                            logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
-                            if client_id in self.recent_joins:
-                                del self.recent_joins[client_id]
+                            if client_id not in disconnected_clients:
+                                if channel:
+                                    await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
+                                logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
+                                disconnected_clients.add(client_id)
+                                # Immediately remove from client_names to prevent re-detection
+                                if client_id in self.client_names:
+                                    del self.client_names[client_id]
+                                if client_id in self.recent_joins:
+                                    del self.recent_joins[client_id]
                 # Joins
                 for client_id, (name, _) in new_client_names.items():
                     if client_id not in self.previous_client_names and client_id not in self.last_seen:
