@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.19"
+    __version__ = "1.0.20"
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -102,10 +102,10 @@ class JKChatBridge(commands.Cog):
                     continue
                 if parsing_players and line.strip():
                     # Extract fields using fixed positions based on the header
-                    if len(line) >= 38:  # Ensure line is long enough for name field
+                    if len(line) >= 38:  # Ensure line is long enough
                         client_id = line[0:2].strip()
                         if client_id.isdigit():
-                            name = line[10:25].strip()  # Name field is roughly columns 10-25
+                            name = line[14:29].strip()  # Name field is columns 14-29
                             player_name = self.remove_color_codes(name)
                             status_names[client_id] = player_name
                             print(f"Parsed from status in refresh_player_data: ID={client_id}, Name={player_name}")
