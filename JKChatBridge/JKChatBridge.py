@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.4"  # Updated version for fixes
+    __version__ = "1.0.5"  # Updated version for name fix
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -78,18 +78,21 @@ class JKChatBridge(commands.Cog):
                 parts = re.split(r"\s+", line)
                 if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
                     client_id = self.remove_color_codes(parts[0])
+                    # Find the first numeric field after client_id
+                    name_end = len(parts)
+                    for i in range(1, len(parts)):
+                        if parts[i].isdigit():
+                            name_end = i
+                            break
+                    # Take all parts up to the first numeric field as the name
+                    name_parts = parts[1:name_end]
+                    player_name = self.remove_color_codes(" ".join(name_parts))
                     # Find the last non-numeric part as username
                     username = None
-                    for i in range(len(parts) - 1, 1, -1):
-                        if not parts[i].isdigit():
-                            username = self.remove_color_codes(parts[i])
+                    for part in reversed(parts[name_end:]):
+                        if part and not part.isdigit():
+                            username = self.remove_color_codes(part)
                             break
-                    # Join all parts between client_id and username as the full name
-                    if username:
-                        name_parts = parts[1:i]
-                    else:
-                        name_parts = parts[1:]  # No username, take all remaining parts
-                    player_name = self.remove_color_codes(" ".join(name_parts))
                     new_client_names[client_id] = (player_name, username)
                     logger.debug(f"Parsed: ID={client_id}, Name={player_name}, Username={username}")
 
@@ -135,7 +138,7 @@ class JKChatBridge(commands.Cog):
                                 await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
                             logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
                             if client_id in self.recent_joins:
-                                del self.recent_joins[client_id]  # Clear recent join on disconnect
+                                del self.recent_joins[client_id]
                 # Joins
                 for client_id, (name, _) in new_client_names.items():
                     if client_id not in self.previous_client_names and client_id not in self.last_seen:
