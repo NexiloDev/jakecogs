@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.8"  # Updated version for fixes
+    __version__ = "1.0.9"  # Updated version for map change and join fixes
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -46,6 +46,7 @@ class JKChatBridge(commands.Cog):
         self.recent_joins = {}
         self.is_restarting = False
         self.restart_map = None
+        self.pending_joins = {}  # Track joins from log
         self.start_monitoring()
         self.start_refresh_loop()
         self.restart_task = self.bot.loop.create_task(self.schedule_daily_restart())
@@ -55,7 +56,7 @@ class JKChatBridge(commands.Cog):
         logger.debug("Cog loaded, initial player data fetched.")
 
     async def refresh_player_data(self):
-        """Refresh all player data using RCON playerlist and validate with status."""
+        """Refresh player data for disconnect detection using RCON playerlist and status."""
         if not await self.validate_rcon_settings():
             logger.warning("RCON settings not configured, skipping refresh_player_data.")
             return
@@ -93,17 +94,7 @@ class JKChatBridge(commands.Cog):
                     new_client_names[client_id] = (player_name, username)
                     logger.debug(f"Parsed from playerlist: ID={client_id}, Name={player_name}, Username={username}")
 
-            # Validate "Padawan" names and detect general name changes
-            if self.client_names:
-                for client_id, (new_name, new_username) in new_client_names.items():
-                    if client_id in self.client_names:
-                        old_name, old_username = self.client_names[client_id]
-                        if new_name != old_name and not new_name.endswith("-Bot"):
-                            if channel:
-                                await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{new_name} (ID: {client_id})**!")
-                            logger.debug(f"Name change detected: {old_name} -> {new_name} (ID: {client_id})")
-
-            # Always fetch status to ensure correct names, not just for Padawan
+            # Update names from status
             try:
                 status_response = await self.bot.loop.run_in_executor(
                     self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
@@ -121,7 +112,6 @@ class JKChatBridge(commands.Cog):
                             client_id = parts[0]
                             player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
                             temp_client_names[client_id] = player_name
-                # Update all names from status, prioritizing it over playerlist
                 for client_id in new_client_names:
                     if client_id in temp_client_names:
                         status_name = temp_client_names[client_id]
@@ -129,41 +119,36 @@ class JKChatBridge(commands.Cog):
                         if status_name != old_name:
                             new_client_names[client_id] = (status_name, old_username)
                             logger.debug(f"Updated name from status: {old_name} -> {status_name} (ID: {client_id})")
-                        if status_name.startswith("Padawan"):
-                            logger.debug(f"Status confirmed Padawan for ID {client_id}, accepting as final name")
             except Exception as e:
                 logger.error(f"Failed to fetch status for name validation: {e}")
 
-            # Detect joins and disconnects after name validation
-            if self.previous_client_names:
-                # Disconnects
-                if not self.is_restarting:
-                    disconnected_clients = set()
-                    for client_id, (name, _) in list(self.previous_client_names.items()):
-                        if client_id not in new_client_names and not name.endswith("-Bot"):
-                            if client_id not in disconnected_clients:
-                                if channel:
-                                    await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
-                                logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
-                                disconnected_clients.add(client_id)
-                                if client_id in self.client_names:
-                                    del self.client_names[client_id]
-                                if client_id in self.recent_joins:
-                                    del self.recent_joins[client_id]
-                # Joins
-                for client_id, (name, _) in new_client_names.items():
-                    if client_id not in self.previous_client_names and client_id not in self.last_seen:
-                        current_time = datetime.now()
-                        if client_id not in self.recent_joins or (current_time - self.recent_joins[client_id]).total_seconds() > 2.0:
-                            self.recent_joins[client_id] = current_time
+            # Detect disconnects only
+            if self.previous_client_names and not self.is_restarting:
+                disconnected_clients = set()
+                for client_id, (name, _) in list(self.previous_client_names.items()):
+                    if client_id not in new_client_names and not name.endswith("-Bot"):
+                        if client_id not in disconnected_clients:
                             if channel:
-                                await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
-                            logger.debug(f"Join detected: {name} (ID: {client_id})")
+                                await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
+                            logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
+                            disconnected_clients.add(client_id)
+                            if client_id in self.client_names:
+                                del self.client_names[client_id]
+                            if client_id in self.recent_joins:
+                                del self.recent_joins[client_id]
 
             self.previous_client_names = self.client_names.copy()
             self.client_names = new_client_names
             self.last_seen = new_client_names.copy()
             logger.debug(f"Updated client_names: {self.client_names}")
+
+            # Process pending joins from log
+            if self.pending_joins and channel:
+                for client_id, name in list(self.pending_joins.items()):
+                    if client_id in new_client_names:
+                        await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
+                        logger.debug(f"Join confirmed from log: {name} (ID: {client_id})")
+                        del self.pending_joins[client_id]
 
         except Exception as e:
             logger.error(f"Error in refresh_player_data: {e}")
@@ -295,6 +280,7 @@ class JKChatBridge(commands.Cog):
         self.previous_client_names.clear()
         self.last_seen.clear()
         self.recent_joins.clear()
+        self.pending_joins.clear()
         self.is_restarting = False
         self.restart_map = None
         await self.refresh_player_data()
@@ -555,7 +541,7 @@ class JKChatBridge(commands.Cog):
         return re.sub(r'\^\d', '', text)
 
     async def monitor_log(self):
-        """Monitor the qconsole.log file for chat, duel events, and server restarts."""
+        """Monitor the qconsole.log file for chat, duel events, joins, and server restarts."""
         self.monitoring = True
         log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
         logger.debug(f"Monitoring log file: {log_file}")
@@ -604,26 +590,52 @@ class JKChatBridge(commands.Cog):
                                 loser = self.remove_color_codes(parts[1].strip())
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
                                 logger.debug(f"Duel win: {winner} vs {loser}")
+                        elif "ShutdownGame:" in line:
+                            self.is_restarting = True
+                            self.client_names.clear()
+                            self.previous_client_names.clear()
+                            self.last_seen.clear()
+                            self.recent_joins.clear()
+                            self.pending_joins.clear()
+                            if channel:
+                                await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
+                            logger.debug("Server shutdown detected (possible map change)")
+                            self.bot.loop.create_task(self.reset_restart_flag(channel))
                         elif "------ Server Initialization ------" in line:
                             self.is_restarting = True
                             self.client_names.clear()
                             self.previous_client_names.clear()
                             self.last_seen.clear()
                             self.recent_joins.clear()
-                            if channel:
+                            self.pending_joins.clear()
+                            if channel and not self.restart_map:  # Only send if not already sent
                                 await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
-                            logger.debug("Server restart/map change detected")
+                            logger.debug("Server initialization detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
                         elif "Server: " in line and self.is_restarting:
                             self.restart_map = line.split("Server: ")[1].strip()
                             logger.debug(f"New map detected: {self.restart_map}")
                         elif "ClientBegin:" in line and self.is_restarting:
-                            await asyncio.sleep(10)
-                            if channel and self.restart_map:
-                                await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
-                            self.is_restarting = False
-                            self.restart_map = None
-                            logger.debug("Server restart/map change completed")
+                            client_id = line.split("ClientBegin: ")[1].strip()
+                            self.pending_joins[client_id] = None  # Mark as pending, name filled later
+                            logger.debug(f"Pending join detected for ID: {client_id}")
+                        elif "info: " in line and "joined the battle" in line:
+                            parts = line.split("info: ")
+                            if len(parts) > 1:
+                                name_part = parts[1].split(" joined the battle")[0].strip()
+                                name = self.remove_color_codes(name_part)
+                                for client_id in self.pending_joins:
+                                    if self.pending_joins[client_id] is None:
+                                        self.pending_joins[client_id] = name
+                                        logger.debug(f"Join name assigned: {name} (ID: {client_id})")
+                                        break
+                            if self.is_restarting and all(self.pending_joins.get(cid) is not None for cid in self.pending_joins):
+                                await asyncio.sleep(5)  # Wait for all joins to settle
+                                if channel and self.restart_map:
+                                    await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
+                                self.is_restarting = False
+                                self.restart_map = None
+                                logger.debug("Server restart/map change completed")
             except Exception as e:
                 logger.error(f"Error in monitor_log: {e}")
                 await asyncio.sleep(5)
@@ -634,6 +646,7 @@ class JKChatBridge(commands.Cog):
         if self.is_restarting:
             self.is_restarting = False
             self.restart_map = None
+            self.pending_joins.clear()
             if channel:
                 await channel.send("✅ **Server Integration Resumed**: Restart timed out, resuming normal operation.")
             logger.debug("Restart flag reset due to timeout")
