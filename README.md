@@ -6,7 +6,7 @@
 
 ## Overview
 
-`JKChatBridge` is a custom cog for [Red-DiscordBot](https://github.com/Cog-Creators/Red-DiscordBot) designed to bridge public chat between a **Jedi Knight: Jedi Academy (JKA)** game server and a Discord server. It uses RCON for real-time player data updates and monitors the game’s `qconsole.log` file to relay in-game chat and duel events. Built with Lugormod support, this cog fosters community engagement across platforms.
+`JKChatBridge` is a custom cog for [Red-DiscordBot](https://github.com/Cog-Creators/Red-DiscordBot) designed to bridge public chat between a **Jedi Knight: Jedi Academy (JKA)** game server and a Discord server. It uses RCON for real-time player data updates and monitors the game’s `qconsole.log` file to relay in-game chat, duel events, and server status changes. Built with Lugormod support, this cog fosters community engagement across platforms.
 
 ## Features
 
@@ -15,14 +15,16 @@
 - **Player Stats**: Check stats with `!jkplayer <username>`.
 - **Event Notifications**: Real-time updates for joins, disconnects, name changes, and duels, including client IDs (e.g., "Jake (ID: 3) has joined").
 - **Player Data Refresh**: Updates player data every 5 seconds via RCON for accurate tracking.
+- **Server Restart/Map Change Handling**: Suppresses disconnect spam and notifies Discord with "Standby" and "Resumed" messages during restarts or map changes.
 - **Daily Server Restart**: Restarts the server at midnight with pre-warnings.
 - **Emoji Support**: Converts text emotes (e.g., `:)` to 😊) and supports custom Discord emojis.
 
 ## How It Works
 
 1. **RCON Integration**: Fetches player data (`playerlist`, `status`) every 5 seconds to track joins, disconnects, and name changes.
-2. **Log Monitoring**: Reads `qconsole.log` for chat messages and duel wins.
+2. **Log Monitoring**: Reads `qconsole.log` for chat messages, duel wins, and server restart/map change events.
 3. **Discord Interaction**: Posts updates to a designated channel and sends Discord messages to the game server.
+4. **Restart Handling**: Detects server restarts or map changes, suspends player tracking, and resumes after a delay to account for bot loading.
 
 ### Technical Details
 
@@ -30,6 +32,7 @@
 - **Requirements**: A JKA server with RCON enabled and access to `qconsole.log`.
 - **Platform**: Windows (file paths and batch files), adaptable with tweaks.
 - **Refresh Rate**: Player data updates every 5 seconds, lightweight for small servers (~10 players).
+- **Restart Detection**: Monitors `qconsole.log` for `------ Server Initialization ------`, suppresses disconnects, and resumes after a 10-second delay post-first `ClientBegin`.
 
 ## Installation
 
@@ -62,6 +65,10 @@
 - **For Admins/Bot Owners**:
   - `!jkexec <filename>`: Execute a config file (e.g., `!jkexec server.cfg`).
   - `[p]jkbridge reloadmonitor`: Refresh log monitoring and player data.
+
+### Server Restart/Map Change Notifications
+- When a restart or map change begins: "⚠️ **Standby**: Server integration suspended while map changes or server restarts."
+- When completed: "✅ **Server Integration Resumed**: Map <mapname> loaded." (after a 10-second delay to allow players to join).
 
 ## Modifying Settings
 
