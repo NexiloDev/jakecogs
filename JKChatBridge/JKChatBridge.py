@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.1" """current version"""
+    __version__ = "1.0.1"  # Current version
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod.
 
     **Commands:**
@@ -71,6 +71,9 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
+            channel_id = await self.config.discord_channel_id()
+            channel = self.bot.get_channel(channel_id) if channel_id else None
+
             # Step 1: Fetch data from playerlist
             playerlist_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
@@ -91,13 +94,33 @@ class JKChatBridge(commands.Cog):
                         if part and not part.isdigit():
                             username = part
                             break
-                    # If this client ID is the one to preserve and the new name starts with "Padawan", use the preserved name
+                    # Preserve existing name if new name is "Padawan" and we have a non-Padawan name to preserve
                     if client_id == preserve_client_id and player_name.startswith("Padawan") and preserve_name and not preserve_name.startswith("Padawan"):
                         new_client_names[client_id] = (preserve_name, preserve_username)
                         logger.debug(f"Preserved name for client_id={client_id}: {preserve_name} (username={preserve_username}) instead of {player_name}")
+                    # If no preserve args, keep existing name unless it’s "Padawan" and new name isn’t
+                    elif client_id in self.client_names:
+                        old_name, old_username = self.client_names[client_id]
+                        if old_name != player_name:  # Name changed
+                            if old_name.startswith("Padawan") and not player_name.startswith("Padawan"):
+                                new_client_names[client_id] = (player_name, username)
+                                if channel:
+                                    await channel.send(f"✏️ **{old_name}** has renamed to **{player_name}**!")
+                                logger.debug(f"Updated Padawan name and notified Discord for client_id={client_id}: {old_name} -> {player_name}")
+                            elif not player_name.startswith("Padawan"):
+                                new_client_names[client_id] = (player_name, username)
+                                if channel:
+                                    await channel.send(f"✏️ **{old_name}** has renamed to **{player_name}**!")
+                                logger.debug(f"Updated name and notified Discord for client_id={client_id}: {old_name} -> {player_name}")
+                            else:
+                                new_client_names[client_id] = (old_name, old_username)
+                                logger.debug(f"Kept old name for client_id={client_id}: {old_name} (new name {player_name} starts with Padawan)")
+                        else:
+                            new_client_names[client_id] = (old_name, old_username)
+                            logger.debug(f"No name change for client_id={client_id}: {old_name}")
                     else:
                         new_client_names[client_id] = (player_name, username)
-                    logger.debug(f"Parsed playerlist: client_id={client_id}, name={player_name}, username={username}")
+                        logger.debug(f"New player parsed for client_id={client_id}: {player_name} (username={username})")
             self.client_names = new_client_names
             logger.debug(f"Updated client_names after playerlist: {self.client_names}")
 
@@ -132,10 +155,12 @@ class JKChatBridge(commands.Cog):
                 for client_id in padawan_ids:
                     if client_id in temp_client_names:
                         status_name = temp_client_names[client_id]
-                        if not status_name.startswith("Padawan") and status_name != self.client_names[client_id][0]:
-                            _, username = self.client_names[client_id]
-                            self.client_names[client_id] = (status_name, username)
-                            logger.debug(f"Updated name from Padawan to {status_name} for client_id={client_id}")
+                        old_name, old_username = self.client_names[client_id]
+                        if not status_name.startswith("Padawan") and status_name != old_name:
+                            self.client_names[client_id] = (status_name, old_username)
+                            if channel:
+                                await channel.send(f"✏️ **{old_name}** has renamed to **{status_name}**!")
+                            logger.debug(f"Updated name from Padawan to {status_name} for client_id={client_id} and notified Discord")
                         else:
                             logger.debug(f"Name remains {self.client_names[client_id][0]} for client_id={client_id} after status check")
             logger.debug(f"Final client_names after validation: {self.client_names}")
@@ -272,6 +297,10 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
+            # Refresh player data to ensure latest names are used
+            await self.refresh_player_data()
+            logger.debug("Player data refreshed for jkstatus")
+
             # Fetch server metadata only (not player data)
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
@@ -294,7 +323,7 @@ class JKChatBridge(commands.Cog):
                 elif "players :" in line:
                     player_count = line.split("players :")[1].strip()
 
-            # Use stored client_names for player list
+            # Use freshly updated client_names for player list
             logger.debug(f"Using client_names for jkstatus: {self.client_names}")
             players = [(cid, f"{self.client_names[cid][0]}{' (' + self.client_names[cid][1] + ')' if self.client_names[cid][1] else ''}")
                        for cid in self.client_names.keys() if not cid.startswith("temp_")]
