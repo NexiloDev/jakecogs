@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.11"  # Updated version for name and join fixes
+    __version__ = "1.0.12"
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -37,6 +37,7 @@ class JKChatBridge(commands.Cog):
         self.monitor_task = None
         self.refresh_task = None
         self.client_names = {}
+        self.client_teams = {}
         self.previous_client_names = {}
         self.last_seen = {}
         self.url_pattern = re.compile(
@@ -46,7 +47,8 @@ class JKChatBridge(commands.Cog):
         self.recent_joins = {}
         self.is_restarting = False
         self.restart_map = None
-        self.pending_joins = {}  # Track joins from log
+        self.pending_joins = {}
+        self.restart_completion_time = None
         self.start_monitoring()
         self.start_refresh_loop()
         self.restart_task = self.bot.loop.create_task(self.schedule_daily_restart())
@@ -122,6 +124,16 @@ class JKChatBridge(commands.Cog):
             except Exception as e:
                 logger.error(f"Failed to fetch status for name validation: {e}")
 
+            # Detect name changes
+            for client_id in new_client_names:
+                if client_id in self.client_names:
+                    old_name, old_username = self.client_names[client_id]
+                    new_name, new_username = new_client_names[client_id]
+                    if old_name != new_name and not new_name.endswith("-Bot"):
+                        if channel:
+                            await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{new_name} (ID: {client_id})**!")
+                        logger.debug(f"Name change detected via playerlist: {old_name} -> {new_name} (ID: {client_id})")
+
             # Detect disconnects
             if self.previous_client_names and not self.is_restarting:
                 disconnected_clients = set()
@@ -136,13 +148,21 @@ class JKChatBridge(commands.Cog):
                                 del self.client_names[client_id]
                             if client_id in self.recent_joins:
                                 del self.recent_joins[client_id]
+                            if client_id in self.client_teams:
+                                del self.client_teams[client_id]
 
-            # Process pending joins (only outside restarts)
+            # Process pending joins
             if self.pending_joins and channel and not self.is_restarting:
+                current_time = datetime.now()
+                suppress_joins = (self.restart_completion_time and 
+                                (current_time - self.restart_completion_time).total_seconds() < 10)
                 for client_id, name in list(self.pending_joins.items()):
                     if name and client_id in new_client_names and not name.endswith("-Bot"):
-                        current_time = datetime.now()
-                        if client_id not in self.recent_joins or (current_time - self.recent_joins[client_id]).total_seconds() > 2.0:
+                        team = self.client_teams.get(client_id, 0)
+                        if (team != 3 and
+                            not suppress_joins and
+                            (client_id not in self.recent_joins or 
+                             (current_time - self.recent_joins[client_id]).total_seconds() > 2.0)):
                             self.recent_joins[client_id] = current_time
                             await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
                             logger.debug(f"Join confirmed from log: {name} (ID: {client_id})")
@@ -152,7 +172,6 @@ class JKChatBridge(commands.Cog):
             self.client_names = new_client_names
             self.last_seen = new_client_names.copy()
             logger.debug(f"Updated client_names: {self.client_names}")
-
         except Exception as e:
             logger.error(f"Error in refresh_player_data: {e}")
 
@@ -280,12 +299,14 @@ class JKChatBridge(commands.Cog):
             except asyncio.CancelledError:
                 logger.debug("Refresh task cancelled.")
         self.client_names.clear()
+        self.client_teams.clear()
         self.previous_client_names.clear()
         self.last_seen.clear()
         self.recent_joins.clear()
         self.pending_joins.clear()
         self.is_restarting = False
         self.restart_map = None
+        self.restart_completion_time = None
         await self.refresh_player_data()
         self.start_monitoring()
         self.start_refresh_loop()
@@ -596,6 +617,7 @@ class JKChatBridge(commands.Cog):
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
                             self.client_names.clear()
+                            self.client_teams.clear()
                             self.previous_client_names.clear()
                             self.last_seen.clear()
                             self.recent_joins.clear()
@@ -607,6 +629,7 @@ class JKChatBridge(commands.Cog):
                         elif "------ Server Initialization ------" in line and not self.is_restarting:
                             self.is_restarting = True
                             self.client_names.clear()
+                            self.client_teams.clear()
                             self.previous_client_names.clear()
                             self.last_seen.clear()
                             self.recent_joins.clear()
@@ -620,7 +643,7 @@ class JKChatBridge(commands.Cog):
                             logger.debug(f"New map detected: {self.restart_map}")
                         elif "ClientBegin:" in line:
                             client_id = line.split("ClientBegin: ")[1].strip()
-                            self.pending_joins[client_id] = None  # Mark as pending, name filled later
+                            self.pending_joins[client_id] = None
                             logger.debug(f"Pending join detected for ID: {client_id}")
                         elif "info: " in line and "joined the battle" in line:
                             parts = line.split("info: ")
@@ -633,28 +656,23 @@ class JKChatBridge(commands.Cog):
                                         logger.debug(f"Join name assigned: {name} (ID: {client_id})")
                                         break
                             if self.is_restarting and all(self.pending_joins.get(cid) is not None for cid in self.pending_joins):
-                                await asyncio.sleep(5)  # Wait for all joins to settle
+                                await asyncio.sleep(5)
                                 if channel and self.restart_map:
                                     await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
                                 self.is_restarting = False
+                                self.restart_completion_time = datetime.now()
                                 self.restart_map = None
                                 logger.debug("Server restart/map change completed")
-                        elif "ClientNamechange:" in line:
-                            parts = line.split("ClientNamechange: ")
-                            if len(parts) > 1:
-                                change_part = parts[1].split(" is now ")
-                                if len(change_part) == 2:
-                                    old_name = self.remove_color_codes(change_part[0].strip())
-                                    new_name = self.remove_color_codes(change_part[1].strip())
-                                    client_id_match = re.search(r"\((\d+)\)", line)
-                                    client_id = client_id_match.group(1) if client_id_match else None
-                                    if client_id and old_name != new_name and not new_name.endswith("-Bot"):
-                                        if channel:
-                                            await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{new_name} (ID: {client_id})**!")
-                                        logger.debug(f"Name change detected: {old_name} -> {new_name} (ID: {client_id})")
-                                        if client_id in self.client_names:
-                                            _, username = self.client_names[client_id]
-                                            self.client_names[client_id] = (new_name, username)
+                        elif "ClientUserinfoChanged:" in line:
+                            match = re.search(r"ClientUserinfoChanged: (\d+) (.*)", line)
+                            if match:
+                                client_id = match.group(1)
+                                userinfo = match.group(2)
+                                team_match = re.search(r"\\t\\(\d+)", userinfo)
+                                if team_match:
+                                    team = int(team_match.group(1))
+                                    self.client_teams[client_id] = team
+                                    logger.debug(f"Updated team for ID {client_id}: {team}")
             except Exception as e:
                 logger.error(f"Error in monitor_log: {e}")
                 await asyncio.sleep(5)
