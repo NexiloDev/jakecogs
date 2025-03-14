@@ -48,6 +48,7 @@ class JKChatBridge(commands.Cog):
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
         )
+        self.recent_client_begins = {}  # Track recent ClientBegin events: {client_id: timestamp}
         self.start_monitoring()
         self.restart_task = self.bot.loop.create_task(self.schedule_daily_restart())
 
@@ -88,7 +89,7 @@ class JKChatBridge(commands.Cog):
             logger.debug(f"Updated client_names after playerlist: {self.client_names}")
 
             # Step 2: Add delay to ensure server state is stable
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(2.0)  # Increased from 1.0 to 2.0 for better stability
 
             # Step 3: Validate names starting with "Padawan" using status
             padawan_ids = [cid for cid, (name, _) in self.client_names.items() if name.startswith("Padawan")]
@@ -545,12 +546,21 @@ class JKChatBridge(commands.Cog):
                             match = re.search(r'ClientBegin: (\d+)', line)
                             if match:
                                 client_id = match.group(1)
+                                current_time = datetime.now()
+                                # Check for duplicate ClientBegin within 5 seconds
+                                if client_id in self.recent_client_begins and (current_time - self.recent_client_begins[client_id]).total_seconds() < 5.0:
+                                    logger.debug(f"Skipping duplicate ClientBegin for client_id={client_id}")
+                                    continue
+                                self.recent_client_begins[client_id] = current_time
                                 self.client_names.clear()
                                 await self.refresh_player_data()
                                 if channel:
                                     updated_name = self.client_names.get(client_id, ("Unknown", None))[0]
+                                    if updated_name == "Unknown":
+                                        # Fall back to log line if refresh didn't update in time
+                                        updated_name = self.remove_color_codes(line.split("ClientBegin:")[0].split()[-1]) if "ClientBegin:" in line else "Unknown"
                                     await channel.send(f"<:jk_connect:1349009924306374756> **{updated_name}** has joined the game!")
-                                logger.debug(f"Player joined trigger: client_id={client_id}")
+                                logger.debug(f"Player joined trigger: client_id={client_id}, name={updated_name}")
                         # Trigger: Player Logged In (to update player data)
                         elif "Player" in line and "has logged in" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged in', line)
@@ -563,24 +573,14 @@ class JKChatBridge(commands.Cog):
                                 self.client_names.clear()
                                 await self.refresh_player_data()
                                 logger.debug(f"client_names after login refresh: {self.client_names}")
-                        # Trigger: Player Logged Out (preserve name if new name is Padawan)
+                        # Trigger: Player Logged Out (keeping for completeness, though no message)
                         elif "Player" in line and "has logged out" in line:
                             match = re.search(r'Player "([^"]+)" \(([^)]+)\) has logged out', line)
                             if match:
                                 player_name = self.remove_color_codes(match.group(1))
-                                # Backup current client_names before refresh
-                                backup_client_names = self.client_names.copy()
                                 self.client_names.clear()
                                 await self.refresh_player_data()
-                                # Restore original name if new name starts with Padawan
-                                for client_id, (new_name, new_username) in list(self.client_names.items()):
-                                    if new_name.startswith("Padawan") and client_id in backup_client_names:
-                                        old_name, old_username = backup_client_names[client_id]
-                                        if not old_name.startswith("Padawan"):
-                                            self.client_names[client_id] = (old_name, old_username)
-                                            logger.debug(f"Restored name for client_id={client_id} from {new_name} to {old_name} due to Padawan detection")
                                 logger.debug(f"Player logged out trigger: name={player_name}")
-                                logger.debug(f"client_names after logout refresh: {self.client_names}")
                         # Trigger: Player Disconnected
                         elif "info: " in line and "disconnected" in line:
                             match = re.search(r'info: (.+) disconnected \(([\d]+)\)', line)
@@ -588,7 +588,7 @@ class JKChatBridge(commands.Cog):
                                 player_name = self.remove_color_codes(match.group(1))
                                 client_id = match.group(2)
                                 if channel and not player_name.endswith("-Bot"):
-                                    # Use existing client_names and remove after message
+                                    # Use existing client_names or fall back to log line name
                                     updated_name = self.client_names.get(client_id, (player_name, None))[0]
                                     await channel.send(f"<:jk_disconnect:1349010016044187713> **{updated_name}** has disconnected.")
                                     if client_id in self.client_names:
@@ -679,7 +679,7 @@ class JKChatBridge(commands.Cog):
             )
             await ctx.send(f"Executed configuration file: {filename}")
         except Exception as e:
-            await ctx.send(f"Failed to execute {filename}: {e}")
+            await ctx.send(f"Failed to execute {filename): {e}")
 
     async def schedule_daily_restart(self):
         """Schedule daily restart announcements and server restart at midnight."""
