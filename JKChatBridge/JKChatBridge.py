@@ -423,7 +423,17 @@ class JKChatBridge(commands.Cog):
         discord_username = discord_username.replace("–", "-").replace("—", "-")
         discord_username = discord_username.replace("…", "...")
         
+        # Original message content with mentions processed
         message_content = message.content
+        # Replace mentions with @display_name
+        for member in message.mentions:
+            mention_str = f"<@{member.id}>"
+            if mention_str in message_content:
+                message_content = message_content.replace(mention_str, f"@{member.display_name}")
+            nick_mention_str = f"<@!{member.id}>"
+            if nick_mention_str in message_content:
+                message_content = message_content.replace(nick_mention_str, f"@{member.display_name}")
+
         message_content = message_content.replace("’", "'").replace("‘", "'")
         message_content = message_content.replace("“", "\"").replace("”", "\"")
         message_content = message_content.replace("«", "\"").replace("»", "\"")
