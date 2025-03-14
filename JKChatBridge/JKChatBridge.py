@@ -19,7 +19,7 @@ class JKChatBridge(commands.Cog):
     __version__ = "1.0.14"
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
-    def __init__(self, bot):
+    def __init kto(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.config.register_global(
@@ -91,7 +91,7 @@ class JKChatBridge(commands.Cog):
                     playerlist_names[client_id] = player_name
                     logger.debug(f"Parsed from playerlist: ID={client_id}, Name={player_name}")
 
-            # Fetch status (fallback for current names)
+            # Fetch status (fallback for current names and team data)
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
@@ -118,15 +118,19 @@ class JKChatBridge(commands.Cog):
                 else:
                     combined_names[client_id] = playerlist_name
 
-            # Update self.client_names with combined names
+            # Update self.client_names, only if not reverting to Padawan
             for client_id, name in combined_names.items():
                 if client_id in self.client_names:
                     old_name, old_username = self.client_names[client_id]
-                    if old_name != name and not name.endswith("-Bot"):
+                    # Only update if name changes and new name isn't "Padawan" (ignore logout reversion)
+                    if old_name != name and not name.lower().startswith("padawan") and not name.endswith("-Bot"):
                         if channel:
                             await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{name} (ID: {client_id})**!")
                         logger.debug(f"Name change detected: {old_name} -> {name} (ID: {client_id})")
-                self.client_names[client_id] = (name, None)  # Update with combined name
+                        self.client_names[client_id] = (name, None)
+                else:
+                    # New player, use combined name unless it's "Padawan" (initial join handled below)
+                    self.client_names[client_id] = (name, None)
 
             # Detect disconnects
             if self.previous_client_names and not self.is_restarting:
@@ -142,22 +146,27 @@ class JKChatBridge(commands.Cog):
                         if client_id in self.client_teams:
                             del self.client_teams[client_id]
 
-            # Process pending joins
+            # Process pending joins (only for new server joins)
             if self.pending_joins and channel and not self.is_restarting:
                 current_time = datetime.now()
                 suppress_joins = (self.restart_completion_time and 
                                 (current_time - self.restart_completion_time).total_seconds() < 10)
                 for client_id, log_name in list(self.pending_joins.items()):
                     if client_id in combined_names and not combined_names[client_id].endswith("-Bot"):
-                        name = combined_names[client_id]
+                        # Use log_name for join message if available, else status_name
+                        join_name = log_name if log_name else status_names.get(client_id, combined_names[client_id])
                         team = self.client_teams.get(client_id, 0)
+                        # Only announce join if it's a new server join, not a team change
                         if (team != 3 and
                             not suppress_joins and
-                            (client_id not in self.recent_joins or 
-                             (current_time - self.recent_joins[client_id]).total_seconds() > 2.0)):
+                            client_id not in self.recent_joins and  # Ensure it's a fresh join
+                            join_name.lower() != "padawan"):  # Avoid announcing "Padawan" joins
                             self.recent_joins[client_id] = current_time
-                            await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
-                            logger.debug(f"Join confirmed: {name} (ID: {client_id})")
+                            await channel.send(f"<:jk_connect:1349009924306374756> **{join_name} (ID: {client_id})** has joined the game!")
+                            logger.debug(f"Join confirmed: {join_name} (ID: {client_id})")
+                            # Set initial name in client_names if not set or still "Padawan"
+                            if client_id not in self.client_names or self.client_names[client_id][0].lower().startswith("padawan"):
+                                self.client_names[client_id] = (join_name, None)
                         del self.pending_joins[client_id]
 
             self.previous_client_names = self.client_names.copy()
