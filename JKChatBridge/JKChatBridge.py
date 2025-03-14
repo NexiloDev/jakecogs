@@ -555,7 +555,7 @@ class JKChatBridge(commands.Cog):
                     continue
 
                 logger.debug(f"Opening log file: {log_file}")
-                async with aiofiles.open(log_file, mode='r', encoding='utf-8', errors='replace') as f:
+                async with aiofiles.open(log_file, mode='r', encoding='latin-1') as f:
                     await f.seek(0, 2)  # Go to the end of the file
                     while self.monitoring:
                         line = await f.readline()
