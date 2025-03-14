@@ -557,7 +557,7 @@ class JKChatBridge(commands.Cog):
     def start_monitoring(self):
         """Start the log monitoring task if it's not already running."""
         if not self.monitor_task or self.monitor_task.done():
-            self.monitor_task = selfSF.bot.loop.create_task(self.monitor_log())
+            self.monitor_task = self.bot.loop.create_task(self.monitor_log())
 
     def parse_chat_line(self, line):
         """Parse a chat line from the log into player name and message."""
