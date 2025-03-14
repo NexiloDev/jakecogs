@@ -57,114 +57,114 @@ class JKChatBridge(commands.Cog):
         await self.refresh_player_data()
         logger.debug("Cog loaded, initial player data fetched.")
 
-async def refresh_player_data(self):
-    """Refresh player data for disconnect detection and process join announcements."""
-    if not await self.validate_rcon_settings():
-        logger.warning("RCON settings not configured, skipping refresh_player_data.")
-        return
+    async def refresh_player_data(self):
+        """Refresh player data for disconnect detection and process join announcements."""
+        if not await self.validate_rcon_settings():
+            logger.warning("RCON settings not configured, skipping refresh_player_data.")
+            return
 
-    try:
-        channel_id = await self.config.discord_channel_id()
-        channel = self.bot.get_channel(channel_id) if channel_id else None
+        try:
+            channel_id = await self.config.discord_channel_id()
+            channel = self.bot.get_channel(channel_id) if channel_id else None
 
-        # Fetch playerlist (primary source for full names)
-        playerlist_response = await self.bot.loop.run_in_executor(
-            self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-        )
-        response_text = playerlist_response.decode(errors='replace')
-        logger.debug(f"playerlist response: {response_text}")
-        playerlist_names = {}
-        for line in response_text.splitlines():
-            line = line.strip()
-            if not line or "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
-                continue
-            parts = re.split(r"\s+", line)
-            if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
-                client_id = self.remove_color_codes(parts[0])
-                name_end = len(parts)
-                for i in range(1, len(parts)):
-                    if parts[i].isdigit():
-                        name_end = i
-                        break
-                name_parts = parts[1:name_end]
-                player_name = self.remove_color_codes(" ".join(name_parts))
-                playerlist_names[client_id] = player_name
-                logger.debug(f"Parsed from playerlist: ID={client_id}, Name={player_name}")
+            # Fetch playerlist (primary source for full names)
+            playerlist_response = await self.bot.loop.run_in_executor(
+                self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+            )
+            response_text = playerlist_response.decode(errors='replace')
+            logger.debug(f"playerlist response: {response_text}")
+            playerlist_names = {}
+            for line in response_text.splitlines():
+                line = line.strip()
+                if not line or "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
+                    continue
+                parts = re.split(r"\s+", line)
+                if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
+                    client_id = self.remove_color_codes(parts[0])
+                    name_end = len(parts)
+                    for i in range(1, len(parts)):
+                        if parts[i].isdigit():
+                            name_end = i
+                            break
+                    name_parts = parts[1:name_end]
+                    player_name = self.remove_color_codes(" ".join(name_parts))
+                    playerlist_names[client_id] = player_name
+                    logger.debug(f"Parsed from playerlist: ID={client_id}, Name={player_name}")
 
-        # Fetch status (fallback for current names)
-        status_response = await self.bot.loop.run_in_executor(
-            self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-        )
-        status_lines = status_response.decode(errors='replace').splitlines()
-        status_names = {}
-        parsing_players = False
-        for line in status_lines:
-            if "score ping" in line:
-                parsing_players = True
-                continue
-            if parsing_players and line.strip():
-                parts = re.split(r"\s+", line, 4)
-                if len(parts) >= 4 and parts[0].isdigit():
-                    client_id = parts[0]
-                    player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
-                    status_names[client_id] = player_name
+            # Fetch status (fallback for current names)
+            status_response = await self.bot.loop.run_in_executor(
+                self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+            )
+            status_lines = status_response.decode(errors='replace').splitlines()
+            status_names = {}
+            parsing_players = False
+            for line in status_lines:
+                if "score ping" in line:
+                    parsing_players = True
+                    continue
+                if parsing_players and line.strip():
+                    parts = re.split(r"\s+", line, 4)
+                    if len(parts) >= 4 and parts[0].isdigit():
+                        client_id = parts[0]
+                        player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
+                        status_names[client_id] = player_name
 
-        # Combine names: prefer playerlist, fallback to status if Padawan
-        combined_names = {}
-        for client_id in playerlist_names:
-            playerlist_name = playerlist_names[client_id]
-            if playerlist_name.lower().startswith("padawan"):
-                combined_names[client_id] = status_names.get(client_id, playerlist_name)
-            else:
-                combined_names[client_id] = playerlist_name
+            # Combine names: prefer playerlist, fallback to status if Padawan
+            combined_names = {}
+            for client_id in playerlist_names:
+                playerlist_name = playerlist_names[client_id]
+                if playerlist_name.lower().startswith("padawan"):
+                    combined_names[client_id] = status_names.get(client_id, playerlist_name)
+                else:
+                    combined_names[client_id] = playerlist_name
 
-        # Update self.client_names with combined names
-        for client_id, name in combined_names.items():
-            if client_id in self.client_names:
-                old_name, old_username = self.client_names[client_id]
-                if old_name != name and not name.endswith("-Bot"):
-                    if channel:
-                        await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{name} (ID: {client_id})**!")
-                    logger.debug(f"Name change detected: {old_name} -> {name} (ID: {client_id})")
-            self.client_names[client_id] = (name, None)  # Update with combined name
+            # Update self.client_names with combined names
+            for client_id, name in combined_names.items():
+                if client_id in self.client_names:
+                    old_name, old_username = self.client_names[client_id]
+                    if old_name != name and not name.endswith("-Bot"):
+                        if channel:
+                            await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{name} (ID: {client_id})**!")
+                        logger.debug(f"Name change detected: {old_name} -> {name} (ID: {client_id})")
+                self.client_names[client_id] = (name, None)  # Update with combined name
 
-        # Detect disconnects
-        if self.previous_client_names and not self.is_restarting:
-            for client_id, (name, _) in list(self.previous_client_names.items()):
-                if client_id not in combined_names and not name.endswith("-Bot"):
-                    if channel:
-                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
-                    logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
-                    if client_id in self.client_names:
-                        del self.client_names[client_id]
-                    if client_id in self.recent_joins:
-                        del self.recent_joins[client_id]
-                    if client_id in self.client_teams:
-                        del self.client_teams[client_id]
+            # Detect disconnects
+            if self.previous_client_names and not self.is_restarting:
+                for client_id, (name, _) in list(self.previous_client_names.items()):
+                    if client_id not in combined_names and not name.endswith("-Bot"):
+                        if channel:
+                            await channel.send(f"<:jk_disconnect:1349010016044187713> **{name} (ID: {client_id})** has disconnected.")
+                        logger.debug(f"Disconnect detected: {name} (ID: {client_id})")
+                        if client_id in self.client_names:
+                            del self.client_names[client_id]
+                        if client_id in self.recent_joins:
+                            del self.recent_joins[client_id]
+                        if client_id in self.client_teams:
+                            del self.client_teams[client_id]
 
-        # Process pending joins
-        if self.pending_joins and channel and not self.is_restarting:
-            current_time = datetime.now()
-            suppress_joins = (self.restart_completion_time and 
-                            (current_time - self.restart_completion_time).total_seconds() < 10)
-            for client_id, log_name in list(self.pending_joins.items()):
-                if client_id in combined_names and not combined_names[client_id].endswith("-Bot"):
-                    name = combined_names[client_id]
-                    team = self.client_teams.get(client_id, 0)
-                    if (team != 3 and
-                        not suppress_joins and
-                        (client_id not in self.recent_joins or 
-                         (current_time - self.recent_joins[client_id]).total_seconds() > 2.0)):
-                        self.recent_joins[client_id] = current_time
-                        await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
-                        logger.debug(f"Join confirmed: {name} (ID: {client_id})")
-                    del self.pending_joins[client_id]
+            # Process pending joins
+            if self.pending_joins and channel and not self.is_restarting:
+                current_time = datetime.now()
+                suppress_joins = (self.restart_completion_time and 
+                                (current_time - self.restart_completion_time).total_seconds() < 10)
+                for client_id, log_name in list(self.pending_joins.items()):
+                    if client_id in combined_names and not combined_names[client_id].endswith("-Bot"):
+                        name = combined_names[client_id]
+                        team = self.client_teams.get(client_id, 0)
+                        if (team != 3 and
+                            not suppress_joins and
+                            (client_id not in self.recent_joins or 
+                             (current_time - self.recent_joins[client_id]).total_seconds() > 2.0)):
+                            self.recent_joins[client_id] = current_time
+                            await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
+                            logger.debug(f"Join confirmed: {name} (ID: {client_id})")
+                        del self.pending_joins[client_id]
 
-        self.previous_client_names = self.client_names.copy()
-        self.last_seen = self.client_names.copy()
-        logger.debug(f"Updated client_names: {self.client_names}")
-    except Exception as e:
-        logger.error(f"Error in refresh_player_data: {e}")
+            self.previous_client_names = self.client_names.copy()
+            self.last_seen = self.client_names.copy()
+            logger.debug(f"Updated client_names: {self.client_names}")
+        except Exception as e:
+            logger.error(f"Error in refresh_player_data: {e}")
 
     async def refresh_loop(self):
         """Periodically refresh player data every 5 seconds."""
