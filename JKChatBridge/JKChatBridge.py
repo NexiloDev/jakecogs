@@ -19,7 +19,7 @@ class JKChatBridge(commands.Cog):
     __version__ = "1.0.14"
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
-    def __init kto(self, bot):
+    def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.config.register_global(
