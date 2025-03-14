@@ -523,8 +523,35 @@ class JKChatBridge(commands.Cog):
             sock.close()
 
     def remove_color_codes(self, text):
-        """Remove Jedi Academy color codes (e.g., ^1, ^7) from text."""
-        return re.sub(r'\^\d', '', text)
+        """Remove Jedi Academy color codes (e.g., ^1, ^7) and handle special Latin-1 characters."""
+        # Ensure text is a string
+        if not isinstance(text, str):
+            text = str(text)
+
+        # Mapping for problematic Latin-1 characters to ASCII equivalents
+        special_char_map = {
+            'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a',  # Accented 'a'
+            'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e',         # Accented 'e'
+            'ì': 'i', 'í': 'i', 'î': 'i', 'ï': 'i',         # Accented 'i'
+            'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',  # Accented 'o'
+            'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u',         # Accented 'u'
+            'ç': 'c', 'Ç': 'C',                             # Cedilla
+            'ñ': 'n', 'Ñ': 'N',                             # Enye
+            'ý': 'y', 'ÿ': 'y',                             # Accented 'y'
+            'æ': 'ae', 'Æ': 'AE',                           # Ligatures
+            'œ': 'oe', 'Œ': 'OE',
+            'ß': 'ss',                                      # German sharp S
+        }
+        
+        # Replace problematic special characters
+        cleaned_text = text
+        for special_char, regular_char in special_char_map.items():
+            cleaned_text = cleaned_text.replace(special_char, regular_char)
+        
+        # Remove color codes
+        cleaned_text = re.sub(r'\^\d', '', cleaned_text)
+        
+        return cleaned_text
 
     async def monitor_log(self):
         """Monitor the qconsole.log file and send messages to Discord, using triggers to refresh player data."""
@@ -554,7 +581,7 @@ class JKChatBridge(commands.Cog):
                     continue
 
                 logger.debug(f"Opening log file: {log_file}")
-                async with aiofiles.open(log_file, mode='r', encoding='utf-8', errors='replace') as f:
+                async with aiofiles.open(log_file, mode='r', encoding='latin-1') as f:
                     await f.seek(0, 2)  # Go to the end of the file
                     while self.monitoring:
                         line = await f.readline()
