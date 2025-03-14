@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.7"  # Updated version for name fixes
+    __version__ = "1.0.8"  # Updated version for fixes
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
 
     def __init__(self, bot):
@@ -91,10 +91,10 @@ class JKChatBridge(commands.Cog):
                             username = self.remove_color_codes(part)
                             break
                     new_client_names[client_id] = (player_name, username)
-                    logger.debug(f"Parsed: ID={client_id}, Name={player_name}, Username={username}")
+                    logger.debug(f"Parsed from playerlist: ID={client_id}, Name={player_name}, Username={username}")
 
             # Validate "Padawan" names and detect general name changes
-            if self.client_names:  # Only check renames if we have prior data
+            if self.client_names:
                 for client_id, (new_name, new_username) in new_client_names.items():
                     if client_id in self.client_names:
                         old_name, old_username = self.client_names[client_id]
@@ -103,36 +103,36 @@ class JKChatBridge(commands.Cog):
                                 await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{new_name} (ID: {client_id})**!")
                             logger.debug(f"Name change detected: {old_name} -> {new_name} (ID: {client_id})")
 
-            padawan_ids = [cid for cid, (name, _) in new_client_names.items() if name.startswith("Padawan")]
-            if padawan_ids:
-                try:
-                    status_response = await self.bot.loop.run_in_executor(
-                        self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-                    )
-                    status_lines = status_response.decode(errors='replace').splitlines()
-                    temp_client_names = {}
-                    parsing_players = False
-                    for line in status_lines:
-                        if "score ping" in line:
-                            parsing_players = True
-                            continue
-                        if parsing_players and line.strip():
-                            parts = re.split(r"\s+", line, 4)
-                            if len(parts) >= 4 and parts[0].isdigit():
-                                client_id = parts[0]
-                                player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
-                                temp_client_names[client_id] = player_name
-                    for client_id in padawan_ids:
-                        if client_id in temp_client_names:
-                            status_name = temp_client_names[client_id]
-                            old_name, old_username = new_client_names[client_id]
-                            if not status_name.startswith("Padawan") and status_name != old_name:
-                                new_client_names[client_id] = (status_name, old_username)
-                                if channel and client_id in self.client_names:
-                                    await channel.send(f"✏️ **{old_name} (ID: {client_id})** has renamed to **{status_name} (ID: {client_id})**!")
-                                logger.debug(f"Updated Padawan name: {old_name} -> {status_name} (ID: {client_id})")
-                except Exception as e:
-                    logger.error(f"Failed to fetch status for Padawan validation: {e}")
+            # Always fetch status to ensure correct names, not just for Padawan
+            try:
+                status_response = await self.bot.loop.run_in_executor(
+                    self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+                )
+                status_lines = status_response.decode(errors='replace').splitlines()
+                temp_client_names = {}
+                parsing_players = False
+                for line in status_lines:
+                    if "score ping" in line:
+                        parsing_players = True
+                        continue
+                    if parsing_players and line.strip():
+                        parts = re.split(r"\s+", line, 4)
+                        if len(parts) >= 4 and parts[0].isdigit():
+                            client_id = parts[0]
+                            player_name = self.remove_color_codes(parts[3]) if len(parts) > 3 else "Unknown"
+                            temp_client_names[client_id] = player_name
+                # Update all names from status, prioritizing it over playerlist
+                for client_id in new_client_names:
+                    if client_id in temp_client_names:
+                        status_name = temp_client_names[client_id]
+                        old_name, old_username = new_client_names[client_id]
+                        if status_name != old_name:
+                            new_client_names[client_id] = (status_name, old_username)
+                            logger.debug(f"Updated name from status: {old_name} -> {status_name} (ID: {client_id})")
+                        if status_name.startswith("Padawan"):
+                            logger.debug(f"Status confirmed Padawan for ID {client_id}, accepting as final name")
+            except Exception as e:
+                logger.error(f"Failed to fetch status for name validation: {e}")
 
             # Detect joins and disconnects after name validation
             if self.previous_client_names:
@@ -150,7 +150,7 @@ class JKChatBridge(commands.Cog):
                                     del self.client_names[client_id]
                                 if client_id in self.recent_joins:
                                     del self.recent_joins[client_id]
-                # Joins (after validation to ensure correct name)
+                # Joins
                 for client_id, (name, _) in new_client_names.items():
                     if client_id not in self.previous_client_names and client_id not in self.last_seen:
                         current_time = datetime.now()
@@ -602,14 +602,8 @@ class JKChatBridge(commands.Cog):
                             if len(parts) == 2 and channel:
                                 winner = self.remove_color_codes(parts[0].strip())
                                 loser = self.remove_color_codes(parts[1].strip())
-                                winner_id = loser_id = "Unknown"
-                                for cid, (name, _) in self.client_names.items():
-                                    if name == winner:
-                                        winner_id = cid
-                                    elif name == loser:
-                                        loser_id = cid
-                                await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner} (ID: {winner_id})** won a duel against **{loser} (ID: {loser_id})**!")
-                                logger.debug(f"Duel win: {winner} (ID: {winner_id}) vs {loser} (ID: {loser_id})")
+                                await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
+                                logger.debug(f"Duel win: {winner} vs {loser}")
                         elif "------ Server Initialization ------" in line:
                             self.is_restarting = True
                             self.client_names.clear()
