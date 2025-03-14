@@ -679,7 +679,7 @@ class JKChatBridge(commands.Cog):
             )
             await ctx.send(f"Executed configuration file: {filename}")
         except Exception as e:
-            await ctx.send(f"Failed to execute {filename): {e}")
+            await ctx.send(f"Failed to execute {filename}: {e}")
 
     async def schedule_daily_restart(self):
         """Schedule daily restart announcements and server restart at midnight."""
