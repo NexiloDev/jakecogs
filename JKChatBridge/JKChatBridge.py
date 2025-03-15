@@ -97,7 +97,7 @@ class JKChatBridge(commands.Cog):
                     client_id = self.remove_color_codes(parts[0])
                     name_end = len(parts)
                     for i in range(1, len(parts)):
-                        if parts[i].isdigit():
+                        if parts[i].isdigit() or parts[i] == "****":  # Stop at numbers or king indicator
                             name_end = i
                             break
                     name_parts = parts[1:name_end]
@@ -502,7 +502,8 @@ class JKChatBridge(commands.Cog):
                             await asyncio.sleep(2)  # Delay to ensure data is loaded
                             await self.refresh_player_data(join_name=join_name)
                             for client_id, (name, username) in self.client_names.items():
-                                if self.remove_color_codes(join_name) == self.remove_color_codes(name) and not name.endswith("-Bot") and not self.is_restarting:
+                                # Compare with truncated name to handle status field limitation
+                                if self.remove_color_codes(join_name) == self.remove_color_codes(name[:15]) and not name.endswith("-Bot") and not self.is_restarting:
                                     await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
                                     logger.debug(f"Join detected: {name} (ID: {client_id})")
                                     break
