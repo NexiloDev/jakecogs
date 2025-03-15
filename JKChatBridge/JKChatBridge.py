@@ -633,7 +633,7 @@ class JKChatBridge(commands.Cog):
                     subprocess.run(["taskkill", "/IM", await self.config.server_executable(), "/F"], check=True)
                     await asyncio.sleep(10)
                     subprocess.run(["start", "", await self.config.start_batch_file()], shell=True, check=True)
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(15)
 
                     log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
                     if os.path.exists(log_file):
