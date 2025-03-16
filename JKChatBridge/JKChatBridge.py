@@ -112,28 +112,16 @@ class JKChatBridge(commands.Cog):
                 self.client_names[client_id] = (final_name, username)
                 print(f"Stored in client_names: ID={client_id}, Name={final_name}, Username={username}")
 
-            # If join_name provided, update the matching client ID
+            # If join_name provided, ensure it’s stored with the correct ID
             if join_name:
                 join_name_clean = self.remove_color_codes(join_name)
-                for client_id in status_data.keys():
-                    status_name_clean = self.remove_color_codes(status_data[client_id])
-                    pl_name, username = playerlist_data.get(client_id, (status_name_clean, None))
-                    pl_name_clean = self.remove_color_codes(pl_name)
-                    # Use join_name if status is garbled and shorter, or if it matches playerlist
-                    if ((("�" in status_name_clean and len(status_name_clean) < len(join_name_clean)) or 
-                         join_name_clean == pl_name_clean) and 
-                        "padawan" not in join_name_clean.lower()):
-                        final_name = join_name_clean
+                for client_id, status_name in status_data.items():
+                    if join_name_clean == self.remove_color_codes(status_name):
+                        pl_name, username = playerlist_data.get(client_id, (status_name, None))
+                        final_name = pl_name if "padawan" not in pl_name.lower() else status_name
                         self.client_names[client_id] = (final_name, username)
                         print(f"Join name matched: ID={client_id}, Name={final_name}, Username={username}")
                         break
-                    elif join_name_clean in status_name_clean or join_name_clean == pl_name_clean:
-                        final_name = pl_name if "padawan" not in pl_name.lower() else status_name_clean
-                        self.client_names[client_id] = (final_name, username)
-                        print(f"Join name matched: ID={client_id}, Name={final_name}, Username={username}")
-                        break
-                else:
-                    logger.debug(f"No match found for join_name: {join_name_clean}")
 
         except Exception as e:
             logger.error(f"Error in refresh_player_data: {e}")
@@ -515,7 +503,7 @@ class JKChatBridge(commands.Cog):
                             for client_id, (name, username) in self.client_names.items():
                                 # Compare with truncated name to handle status field limitation
                                 if self.remove_color_codes(join_name) == self.remove_color_codes(name[:15]) and not name.endswith("-Bot") and not self.is_restarting:
-                                    await channel.send(f"<:jk_connect:1349009924306374756> **{name}** has joined the game!")
+                                    await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
                                     logger.debug(f"Join detected: {name} (ID: {client_id})")
                                     break
 
@@ -537,7 +525,7 @@ class JKChatBridge(commands.Cog):
                                 if client_id in self.client_names:  # Only send if player fully joined
                                     stored_name = self.client_names[client_id][0]
                                     if not self.is_restarting and not stored_name.endswith("-Bot") and stored_name and stored_name.strip():
-                                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{stored_name}** has disconnected.")
+                                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{stored_name} (ID: {client_id})** has disconnected.")
                                     logger.debug(f"Disconnect detected: {stored_name} (ID: {client_id})")
                                     del self.client_names[client_id]
                                     if client_id in self.client_teams:
