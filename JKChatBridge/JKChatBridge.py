@@ -112,16 +112,30 @@ class JKChatBridge(commands.Cog):
                 self.client_names[client_id] = (final_name, username)
                 print(f"Stored in client_names: ID={client_id}, Name={final_name}, Username={username}")
 
-            # If join_name provided, ensure it’s stored with the correct ID
+            # If join_name provided, override with it if it matches an ID from status or playerlist
             if join_name:
                 join_name_clean = self.remove_color_codes(join_name)
-                for client_id, status_name in status_data.items():
-                    if join_name_clean == self.remove_color_codes(status_name):
-                        pl_name, username = playerlist_data.get(client_id, (status_name, None))
-                        final_name = pl_name if "padawan" not in pl_name.lower() else status_name
-                        self.client_names[client_id] = (final_name, username)
-                        print(f"Join name matched: ID={client_id}, Name={final_name}, Username={username}")
-                        break
+                matched = False
+                for client_id in status_data.keys():
+                    if client_id in playerlist_data:
+                        pl_name, username = playerlist_data[client_id]
+                        status_name = status_data[client_id]
+                        # Use join_name if it differs from status and playerlist names (e.g., garbled or truncated)
+                        if (join_name_clean != self.remove_color_codes(status_name) and 
+                            join_name_clean != self.remove_color_codes(pl_name)):
+                            final_name = join_name_clean  # Use §ÑØW§TØ®M¹ from log
+                            self.client_names[client_id] = (final_name, username)
+                            print(f"Join name override: ID={client_id}, Name={final_name}, Username={username}")
+                            matched = True
+                            break
+                        elif join_name_clean == self.remove_color_codes(status_name) or join_name_clean == self.remove_color_codes(pl_name):
+                            final_name = pl_name if "padawan" not in pl_name.lower() else status_name
+                            self.client_names[client_id] = (final_name, username)
+                            print(f"Join name matched: ID={client_id}, Name={final_name}, Username={username}")
+                            matched = True
+                            break
+                if not matched:
+                    logger.debug(f"No match found for join_name: {join_name_clean}")
 
         except Exception as e:
             logger.error(f"Error in refresh_player_data: {e}")
