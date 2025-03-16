@@ -45,7 +45,6 @@ class JKChatBridge(commands.Cog):
         self.restart_map = None
         self.restart_completion_time = None
         self.start_monitoring()
-        self.restart_task = self.bot.loop.create_task(self.schedule_daily_restart())
 
     async def cog_load(self):
         logger.debug("Cog loaded.")
@@ -575,7 +574,7 @@ class JKChatBridge(commands.Cog):
     async def cog_unload(self):
         """Clean up when the cog is unloaded."""
         self.monitoring = False
-        for task in [self.monitor_task, self.restart_task]:
+        for task in [self.monitor_task]:
             if task and not task.done():
                 task.cancel()
                 try:
@@ -599,65 +598,6 @@ class JKChatBridge(commands.Cog):
             await ctx.send(f"Executed configuration file: {filename}")
         except Exception as e:
             await ctx.send(f"Failed to execute {filename}: {e}")
-
-    async def schedule_daily_restart(self):
-        """Schedule daily restart announcements and server restart at midnight."""
-        while True:
-            now = datetime.now()
-            next_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-            await asyncio.sleep((next_midnight - now).total_seconds())
-
-            if await self.validate_rcon_settings() and await self.config.discord_channel_id():
-                channel = self.bot.get_channel(await self.config.discord_channel_id())
-                if channel:
-                    await channel.send("⚠️ **Server Restart Warning**: The server will restart in 1 minute as part of the daily reset.")
-                await self.bot.loop.run_in_executor(
-                    self.executor, self.send_rcon_command, "say ^1Server will restart in 1 minute for daily reset!",
-                    await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-                )
-
-            await asyncio.sleep(30)
-
-            if await self.validate_rcon_settings() and await self.config.discord_channel_id():
-                channel = self.bot.get_channel(await self.config.discord_channel_id())
-                if channel:
-                    await channel.send("⏰ **Server Restart**: 30 seconds remaining until restart.")
-                await self.bot.loop.run_in_executor(
-                    self.executor, self.send_rcon_command, "say ^1Server restarting in 30 seconds!",
-                    await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-                )
-
-            await asyncio.sleep(30)
-
-            if await self.validate_rcon_settings():
-                try:
-                    subprocess.run(["taskkill", "/IM", await self.config.server_executable(), "/F"], check=True)
-                    await asyncio.sleep(10)
-                    subprocess.run(["start", "", await self.config.start_batch_file()], shell=True, check=True)
-                    await asyncio.sleep(15)
-
-                    log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
-                    if os.path.exists(log_file):
-                        self.monitoring = False
-                        if self.monitor_task and not self.monitor_task.done():
-                            self.monitor_task.cancel()
-                            await self.monitor_task
-                        self.monitoring = True
-                        self.start_monitoring()
-                        if await self.config.discord_channel_id():
-                            channel = self.bot.get_channel(await self.config.discord_channel_id())
-                            if channel:
-                                await channel.send("✅ **Server Restart Successful!**")
-                except subprocess.CalledProcessError as e:
-                    if await self.config.discord_channel_id():
-                        channel = self.bot.get_channel(await self.config.discord_channel_id())
-                        if channel:
-                            await channel.send(f"❌ **Restart Failed**: Error shutting down or starting server - {e}.")
-                except Exception as e:
-                    if await self.config.discord_channel_id():
-                        channel = self.bot.get_channel(await self.config.discord_channel_id())
-                        if channel:
-                            await channel.send(f"❌ **Restart Failed**: Unexpected error - {e}.")
 
 async def setup(bot):
     """Set up the JKChatBridge cog when the bot loads."""
