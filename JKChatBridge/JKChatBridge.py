@@ -531,7 +531,7 @@ class JKChatBridge(commands.Cog):
 
                         # Player disconnects
                         elif "disconnected" in line:
-                            match = re.search(r"(.+?) disconnected \((\d+)\)", line)
+                            match = re.search(r"info:\s*(.+?)\s*disconnected\s*\((\d+)\)", line)
                             if match:
                                 name = match.group(1)
                                 client_id = match.group(2)
