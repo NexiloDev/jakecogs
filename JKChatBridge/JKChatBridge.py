@@ -527,10 +527,20 @@ class JKChatBridge(commands.Cog):
                         line = line.strip()
 
                         # Exclude specific log lines
-                        if ("SV packet" in line and ("getstatus" in line or "getinfo" in line)) or \
-                           line.startswith("setteam:") or \
-                           ("clientCommand:" in line and ("login" in line or "score" in line)) or \
-                           "Updated team for ID" in line:
+                        if line.strip() == "" or \
+                        ("SV packet 127.0.0.1" in line and ": rcon" in line) or \
+                        ("SV packet" in line and ("getstatus" in line or "getinfo" in line)) or \
+                        line.startswith("setteam:") or \
+                        ("clientCommand:" in line and ("login" in line or "score" in line)) or \
+                        "Updated team for ID" in line or \
+                        ("Damage:" in line and "Kills:" in line) or \
+                        line.startswith("Loading account:") or \
+                        line.startswith("Can't find models/") or \
+                        "ERROR: Server tried to modelindex" in line or \
+                        "WARNING: CM_AddFacetBevels" in line or \
+                        ("Object" in line and "touching" in line and "areas at" in line) or \
+                        line.startswith("Can't find maps/") or \
+                        "CM_LoadMap" in line:
                             continue  # Skip these lines
 
                         self.logger.debug(f"Log line: {line}")
@@ -598,7 +608,7 @@ class JKChatBridge(commands.Cog):
 
                         # Player disconnect handling
                         elif "disconnected" in line:
-                            match = re.search(r"info:\s*(.+?)\s*disconnected\s*$$ (\d+) $$", line)
+                            match = re.search(r"info:\s*(.+?)\s*disconnected\s*\((\d+)\)", line)
                             if match:
                                 name = match.group(1)
                                 client_id = match.group(2)
