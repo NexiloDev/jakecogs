@@ -12,7 +12,7 @@ import subprocess
 import logging
 import queue
 
-# Define the custom logging handler for Discord
+# Custom handler for Discord logging
 class DiscordLogHandler(logging.Handler):
     def __init__(self, log_queue):
         super().__init__()
@@ -38,7 +38,7 @@ class JKChatBridge(commands.Cog):
             custom_emoji="<:jk:1219115870928900146>",
             server_executable="openjkded.x86.exe",
             start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\start_jka_server.bat",
-            log_channel_id=None  # New config option for log channel
+            log_channel_id=None  # Config for log channel
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
@@ -54,10 +54,10 @@ class JKChatBridge(commands.Cog):
         self.restart_map = None
         self.restart_completion_time = None
 
-        # Set up logging
+        # Logging setup
         self.logger = logging.getLogger("JKChatBridge")
         self.logger.setLevel(logging.DEBUG)
-        self.logger.propagate = False  # Prevent logs from going to root logger
+        self.logger.propagate = False
         self.log_queue = queue.Queue()
         handler = DiscordLogHandler(self.log_queue)
         handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
@@ -70,7 +70,7 @@ class JKChatBridge(commands.Cog):
         self.log_task = self.bot.loop.create_task(self.send_logs())
 
     async def send_logs(self):
-        """Background task to send logs from the queue to the Discord log channel."""
+        """Background task to send logs to Discord with markdown formatting."""
         while True:
             try:
                 msg = await self.bot.loop.run_in_executor(None, self.log_queue.get)
@@ -78,21 +78,20 @@ class JKChatBridge(commands.Cog):
                 if log_channel_id:
                     channel = self.bot.get_channel(log_channel_id)
                     if channel:
-                        # Format with Discord markdown
+                        # Format log with markdown
                         parts = msg.split(' - ', 2)
                         if len(parts) == 3:
                             timestamp, level, log_msg = parts
                             formatted_msg = f"**{level}** - ```log\n{log_msg}\n```"
                         else:
                             formatted_msg = f"```log\n{msg}\n```"
-                        # Truncate if exceeding 1900 characters
                         if len(formatted_msg) > 1900:
                             formatted_msg = formatted_msg[:1900] + "... [truncated]\n```"
                         await channel.send(formatted_msg)
                     else:
-                        print(msg)  # Fallback to console if channel is inaccessible
+                        print(msg)  # Fallback to console
                 else:
-                    print(msg)  # Fallback to console if no channel is set
+                    print(msg)  # Fallback to console
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -117,7 +116,6 @@ class JKChatBridge(commands.Cog):
             return
 
         try:
-            # Fetch status first (primary source for ID and initial name)
             status_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
@@ -130,18 +128,16 @@ class JKChatBridge(commands.Cog):
                     parsing_players = True
                     continue
                 if parsing_players and line.strip():
-                    if len(line) >= 38:  # Ensure line is long enough
+                    if len(line) >= 38:
                         client_id = line[0:2].strip()
                         if client_id.isdigit():
-                            name = line[14:29].strip()  # Name field is columns 14-29
+                            name = line[14:29].strip()
                             player_name = self.remove_color_codes(name)
                             status_data[client_id] = player_name
                             self.logger.debug(f"Parsed from status: ID={client_id}, Name={player_name}")
 
-            # Delay before playerlist command
             await asyncio.sleep(1)
 
-            # Fetch playerlist (refinement for non-Padawan names and usernames)
             playerlist_response = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
@@ -157,7 +153,7 @@ class JKChatBridge(commands.Cog):
                     client_id = self.remove_color_codes(parts[0])
                     name_end = len(parts)
                     for i in range(1, len(parts)):
-                        if parts[i].isdigit() or parts[i] == "****":  # Stop at numbers or king indicator
+                        if parts[i].isdigit() or parts[i] == "****":
                             name_end = i
                             break
                     name_parts = parts[1:name_end]
@@ -166,14 +162,12 @@ class JKChatBridge(commands.Cog):
                     playerlist_data[client_id] = (full_name, username)
                     self.logger.debug(f"Parsed from playerlist: ID={client_id}, Name={full_name}, Username={username}")
 
-            # Update self.client_names
             for client_id, status_name in status_data.items():
                 pl_name, username = playerlist_data.get(client_id, (status_name, None))
                 final_name = pl_name if "padawan" not in pl_name.lower() else status_name
                 self.client_names[client_id] = (final_name, username)
                 self.logger.debug(f"Stored in client_names: ID={client_id}, Name={final_name}, Username={username}")
 
-            # If join_name provided, ensure it’s stored with the correct ID
             if join_name:
                 join_name_clean = self.remove_color_codes(join_name)
                 for client_id, status_name in status_data.items():
@@ -498,7 +492,7 @@ class JKChatBridge(commands.Cog):
         return re.sub(r'\^\d', '', text)
 
     async def monitor_log(self):
-        """Monitor qconsole.log for events and trigger actions."""
+        """Monitor qconsole.log for events and trigger actions, excluding specific lines."""
         self.monitoring = True
         log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
         self.logger.debug(f"Monitoring log file: {log_file}")
@@ -531,16 +525,24 @@ class JKChatBridge(commands.Cog):
                             await asyncio.sleep(0.1)
                             continue
                         line = line.strip()
+
+                        # Exclude specific log lines
+                        if ("SV packet" in line and ("getstatus" in line or "getinfo" in line)) or \
+                           line.startswith("setteam:") or \
+                           ("clientCommand:" in line and ("login" in line or "score" in line)) or \
+                           "Updated team for ID" in line:
+                            continue  # Skip these lines
+
                         self.logger.debug(f"Log line: {line}")
 
-                        # Chat message
+                        # Chat message handling
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message and not self.url_pattern.search(message):
                                 message = self.replace_text_emotes_with_emojis(message)
                                 await channel.send(f"{custom_emoji} **{player_name}**: {message}")
 
-                        # Duel event
+                        # Duel event handling
                         elif "duel:" in line and "won a duel against" in line:
                             parts = line.split("duel:")[1].split("won a duel against")
                             if len(parts) == 2:
@@ -548,7 +550,7 @@ class JKChatBridge(commands.Cog):
                                 loser = self.remove_color_codes(parts[1].strip())
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
 
-                        # Server shutdown/restart
+                        # Server shutdown/restart handling
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
                             self.client_names.clear()
@@ -564,7 +566,7 @@ class JKChatBridge(commands.Cog):
                             self.logger.debug("Server initialization detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
 
-                        # Map change
+                        # Map change handling
                         elif "Server: " in line and self.is_restarting:
                             self.restart_map = line.split("Server: ")[1].strip()
                             self.logger.debug(f"New map detected: {self.restart_map}")
@@ -575,7 +577,7 @@ class JKChatBridge(commands.Cog):
                             self.restart_map = None
                             self.logger.debug("Server restart/map change completed")
 
-                        # Player joins (CS_CONNECTED to CS_PRIMED)
+                        # Player join handling
                         elif "Going from CS_CONNECTED to CS_PRIMED for" in line:
                             join_name = line.split("Going from CS_CONNECTED to CS_PRIMED for ")[1].strip()
                             join_name_clean = self.remove_color_codes(join_name)
@@ -585,16 +587,16 @@ class JKChatBridge(commands.Cog):
                             await asyncio.sleep(2)
                             await self.refresh_player_data(join_name=join_name)
 
-                        # Player logs in
+                        # Player login handling
                         elif "has logged in" in line:
                             await self.refresh_player_data()
                             self.logger.debug("Login detected, player data refreshed")
 
-                        # Player logs out (no name update)
+                        # Player logout handling
                         elif "has logged out" in line:
                             self.logger.debug("Logout detected, keeping stored name")
 
-                        # Player disconnects
+                        # Player disconnect handling
                         elif "disconnected" in line:
                             match = re.search(r"info:\s*(.+?)\s*disconnected\s*$$ (\d+) $$", line)
                             if match:
@@ -609,7 +611,7 @@ class JKChatBridge(commands.Cog):
                                 if client_id in self.client_teams:
                                     del self.client_teams[client_id]
 
-                        # Team update
+                        # Team update handling
                         elif "ClientUserinfoChanged:" in line:
                             match = re.search(r"ClientUserinfoChanged: (\d+) (.*)", line)
                             if match:
