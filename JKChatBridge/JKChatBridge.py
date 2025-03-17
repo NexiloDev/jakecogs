@@ -510,17 +510,15 @@ class JKChatBridge(commands.Cog):
                             self.restart_map = None
                             logger.debug("Server restart/map change completed")
 
-                        # Player joins (CS_PRIMED to CS_ACTIVE)
-                        elif "Going from CS_PRIMED to CS_ACTIVE for" in line:
-                            join_name = line.split("Going from CS_PRIMED to CS_ACTIVE for ")[1].strip()
+                        # Player joins (CS_FREE to CS_CONNECTED)
+                        elif "Going from CS_FREE to CS_CONNECTED for" in line:
+                            join_name = line.split("Going from CS_FREE to CS_CONNECTED for ")[1].strip()
+                            join_name_clean = self.remove_color_codes(join_name)
+                            if not join_name_clean.endswith("-Bot") and not self.is_restarting:
+                                await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
+                                logger.debug(f"Join detected: {join_name_clean}")
                             await asyncio.sleep(2)  # Delay to ensure data is loaded
                             await self.refresh_player_data(join_name=join_name)
-                            for client_id, (name, username) in self.client_names.items():
-                                # Compare with truncated name to handle status field limitation
-                                if self.remove_color_codes(join_name) == self.remove_color_codes(name[:15]) and not name.endswith("-Bot") and not self.is_restarting:
-                                    await channel.send(f"<:jk_connect:1349009924306374756> **{name} (ID: {client_id})** has joined the game!")
-                                    logger.debug(f"Join detected: {name} (ID: {client_id})")
-                                    break
 
                         # Player logs in
                         elif "has logged in" in line:
@@ -535,16 +533,16 @@ class JKChatBridge(commands.Cog):
                         elif "disconnected" in line:
                             match = re.search(r"(.+?) disconnected \((\d+)\)", line)
                             if match:
-                                name = self.remove_color_codes(match.group(1))
+                                name = match.group(1)
                                 client_id = match.group(2)
-                                if client_id in self.client_names:  # Only send if player fully joined
-                                    stored_name = self.client_names[client_id][0]
-                                    if not self.is_restarting and not stored_name.endswith("-Bot") and stored_name and stored_name.strip():
-                                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{stored_name} (ID: {client_id})** has disconnected.")
-                                    logger.debug(f"Disconnect detected: {stored_name} (ID: {client_id})")
+                                name_clean = self.remove_color_codes(name)
+                                if not self.is_restarting and not name_clean.endswith("-Bot") and name_clean.strip():
+                                    await channel.send(f"<:jk_disconnect:1349010016044187713> **{name_clean}** has disconnected.")
+                                logger.debug(f"Disconnect detected: {name_clean} (ID: {client_id})")
+                                if client_id in self.client_names:
                                     del self.client_names[client_id]
-                                    if client_id in self.client_teams:
-                                        del self.client_teams[client_id]
+                                if client_id in self.client_teams:
+                                    del self.client_teams[client_id]
 
                         # Team update
                         elif "ClientUserinfoChanged:" in line:
