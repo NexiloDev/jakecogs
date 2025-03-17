@@ -10,10 +10,17 @@ from datetime import datetime, timedelta
 import time
 import subprocess
 import logging
+import queue
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger("JKChatBridge")
+# Define the custom logging handler for Discord
+class DiscordLogHandler(logging.Handler):
+    def __init__(self, log_queue):
+        super().__init__()
+        self.log_queue = log_queue
+
+    def emit(self, record):
+        msg = self.format(record)
+        self.log_queue.put(msg)
 
 class JKChatBridge(commands.Cog):
     __version__ = "1.0.23"
@@ -30,11 +37,13 @@ class JKChatBridge(commands.Cog):
             rcon_password=None,
             custom_emoji="<:jk:1219115870928900146>",
             server_executable="openjkded.x86.exe",
-            start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\start_jka_server.bat"
+            start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\start_jka_server.bat",
+            log_channel_id=None  # New config option for log channel
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
+        self.log_task = None  # Task for sending logs
         self.client_names = {}  # {client_id: (name, username)}
         self.client_teams = {}  # {client_id: team}
         self.url_pattern = re.compile(
@@ -44,15 +53,67 @@ class JKChatBridge(commands.Cog):
         self.is_restarting = False
         self.restart_map = None
         self.restart_completion_time = None
+
+        # Set up logging
+        self.logger = logging.getLogger("JKChatBridge")
+        self.logger.setLevel(logging.DEBUG)
+        self.logger.propagate = False  # Prevent logs from going to root logger
+        self.log_queue = queue.Queue()
+        handler = DiscordLogHandler(self.log_queue)
+        handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        self.logger.addHandler(handler)
+
         self.start_monitoring()
 
     async def cog_load(self):
-        logger.debug("Cog loaded.")
+        self.logger.debug("Cog loaded.")
+        self.log_task = self.bot.loop.create_task(self.send_logs())
+
+    async def send_logs(self):
+        """Background task to send logs from the queue to the Discord log channel."""
+        while True:
+            try:
+                msg = await self.bot.loop.run_in_executor(None, self.log_queue.get)
+                log_channel_id = await self.config.log_channel_id()
+                if log_channel_id:
+                    channel = self.bot.get_channel(log_channel_id)
+                    if channel:
+                        # Format with Discord markdown
+                        parts = msg.split(' - ', 2)
+                        if len(parts) == 3:
+                            timestamp, level, log_msg = parts
+                            formatted_msg = f"**{level}** - ```log\n{log_msg}\n```"
+                        else:
+                            formatted_msg = f"```log\n{msg}\n```"
+                        # Truncate if exceeding 1900 characters
+                        if len(formatted_msg) > 1900:
+                            formatted_msg = formatted_msg[:1900] + "... [truncated]\n```"
+                        await channel.send(formatted_msg)
+                    else:
+                        print(msg)  # Fallback to console if channel is inaccessible
+                else:
+                    print(msg)  # Fallback to console if no channel is set
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"Error sending log: {e}")
+
+    async def cog_unload(self):
+        """Clean up when the cog is unloaded."""
+        self.monitoring = False
+        for task in [self.monitor_task, self.log_task]:
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self.executor.shutdown(wait=False)
 
     async def refresh_player_data(self, join_name=None):
         """Refresh player data using rcon status (primary) and playerlist (refinement)."""
         if not await self.validate_rcon_settings():
-            logger.warning("RCON settings not configured, skipping refresh_player_data.")
+            self.logger.warning("RCON settings not configured, skipping refresh_player_data.")
             return
 
         try:
@@ -61,7 +122,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_text = status_response.decode(errors='replace')
-            print(f"RAW status response in refresh_player_data:\n{status_text}")
+            self.logger.debug(f"RAW status response in refresh_player_data:\n{status_text}")
             status_data = {}
             parsing_players = False
             for line in status_text.splitlines():
@@ -75,7 +136,7 @@ class JKChatBridge(commands.Cog):
                             name = line[14:29].strip()  # Name field is columns 14-29
                             player_name = self.remove_color_codes(name)
                             status_data[client_id] = player_name
-                            print(f"Parsed from status: ID={client_id}, Name={player_name}")
+                            self.logger.debug(f"Parsed from status: ID={client_id}, Name={player_name}")
 
             # Delay before playerlist command
             await asyncio.sleep(1)
@@ -85,7 +146,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             playerlist_text = playerlist_response.decode(errors='replace')
-            print(f"RAW playerlist response in refresh_player_data:\n{playerlist_text}")
+            self.logger.debug(f"RAW playerlist response in refresh_player_data:\n{playerlist_text}")
             playerlist_data = {}
             for line in playerlist_text.splitlines():
                 line = line.strip()
@@ -103,14 +164,14 @@ class JKChatBridge(commands.Cog):
                     full_name = self.remove_color_codes(" ".join(name_parts))
                     username = parts[-1] if len(parts) > name_end and not parts[-1].isdigit() else None
                     playerlist_data[client_id] = (full_name, username)
-                    logger.debug(f"Parsed from playerlist: ID={client_id}, Name={full_name}, Username={username}")
+                    self.logger.debug(f"Parsed from playerlist: ID={client_id}, Name={full_name}, Username={username}")
 
             # Update self.client_names
             for client_id, status_name in status_data.items():
                 pl_name, username = playerlist_data.get(client_id, (status_name, None))
                 final_name = pl_name if "padawan" not in pl_name.lower() else status_name
                 self.client_names[client_id] = (final_name, username)
-                print(f"Stored in client_names: ID={client_id}, Name={final_name}, Username={username}")
+                self.logger.debug(f"Stored in client_names: ID={client_id}, Name={final_name}, Username={username}")
 
             # If join_name provided, ensure it’s stored with the correct ID
             if join_name:
@@ -120,11 +181,11 @@ class JKChatBridge(commands.Cog):
                         pl_name, username = playerlist_data.get(client_id, (status_name, None))
                         final_name = pl_name if "padawan" not in pl_name.lower() else status_name
                         self.client_names[client_id] = (final_name, username)
-                        print(f"Join name matched: ID={client_id}, Name={final_name}, Username={username}")
+                        self.logger.debug(f"Join name matched: ID={client_id}, Name={final_name}, Username={username}")
                         break
 
         except Exception as e:
-            logger.error(f"Error in refresh_player_data: {e}")
+            self.logger.error(f"Error in refresh_player_data: {e}")
 
     async def validate_rcon_settings(self):
         """Check if RCON settings are fully configured."""
@@ -190,13 +251,21 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Start batch file set to: {batch_file}")
 
     @jkbridge.command()
+    async def setlogchannel(self, ctx, channel: discord.TextChannel):
+        """Set the Discord channel for debug logs."""
+        await self.config.log_channel_id.set(channel.id)
+        await ctx.send(f"Log channel set to: {channel.name} (ID: {channel.id})")
+
+    @jkbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the JK chat bridge."""
         channel = self.bot.get_channel(await self.config.discord_channel_id()) if await self.config.discord_channel_id() else None
+        log_channel = self.bot.get_channel(await self.config.log_channel_id()) if await self.config.log_channel_id() else None
         settings_message = (
             f"**Current Settings:**\n"
             f"Log Base Path: {await self.config.log_base_path() or 'Not set'}\n"
             f"Discord Channel: {channel.name if channel else 'Not set'} (ID: {await self.config.discord_channel_id() or 'Not set'})\n"
+            f"Log Channel: {log_channel.name if log_channel else 'Not set'} (ID: {await self.config.log_channel_id() or 'Not set'})\n"
             f"RCON Host: {await self.config.rcon_host() or 'Not set'}\n"
             f"RCON Port: {await self.config.rcon_port() or 'Not set'}\n"
             f"RCON Password: {'Set' if await self.config.rcon_password() else 'Not set'}\n"
@@ -209,31 +278,27 @@ class JKChatBridge(commands.Cog):
     @jkbridge.command()
     async def reloadmonitor(self, ctx):
         """Force reload the log monitoring task."""
-        # Stop the existing task if it’s running
         if self.monitor_task and not self.monitor_task.done():
-            self.monitoring = False  # Signal the task to stop
-            self.monitor_task.cancel()  # Cancel the task
+            self.monitoring = False
+            self.monitor_task.cancel()
             try:
-                await self.monitor_task  # Wait for it to finish
+                await self.monitor_task
+                self.logger.info("Monitoring task canceled successfully.")
             except asyncio.CancelledError:
-                print("Monitoring task canceled successfully.")
+                self.logger.info("Monitoring task canceled successfully.")
             except Exception as e:
-                print(f"Error canceling task: {e}")
+                self.logger.error(f"Error canceling task: {e}")
 
-        # Brief delay to ensure the task is fully stopped
         await asyncio.sleep(1)
 
-        # Reset any related data
         self.client_names.clear()
         self.client_teams.clear()
         self.is_restarting = False
         self.restart_map = None
         self.restart_completion_time = None
 
-        # Start the new monitoring task
         self.start_monitoring()
 
-        # Confirm to the user
         await ctx.send("Log monitoring task reloaded.")
 
     @commands.command(name="jkstatus")
@@ -249,7 +314,7 @@ class JKChatBridge(commands.Cog):
                 self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
             status_text = status_response.decode(errors='replace')
-            print(f"RAW status response in jkstatus:\n{status_text}")
+            self.logger.debug(f"RAW status response in jkstatus:\n{status_text}")
             status_lines = status_text.splitlines()
 
             server_name = "Unknown"
@@ -278,7 +343,7 @@ class JKChatBridge(commands.Cog):
             embed.add_field(name="📋 Online Players", value=player_list, inline=False)
             await ctx.send(embed=embed)
         except Exception as e:
-            logger.error(f"Error in jkstatus: {e}")
+            self.logger.error(f"Error in jkstatus: {e}")
             await ctx.send(f"Failed to retrieve server status: {e}")
 
     @commands.command(name="jkplayer")
@@ -436,25 +501,25 @@ class JKChatBridge(commands.Cog):
         """Monitor qconsole.log for events and trigger actions."""
         self.monitoring = True
         log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
-        logger.debug(f"Monitoring log file: {log_file}")
+        self.logger.debug(f"Monitoring log file: {log_file}")
 
         while self.monitoring:
             try:
                 channel_id = await self.config.discord_channel_id()
                 custom_emoji = await self.config.custom_emoji()
                 if not all([await self.config.log_base_path(), channel_id, custom_emoji]):
-                    logger.warning("Missing configuration, pausing monitor.")
+                    self.logger.warning("Missing configuration, pausing monitor.")
                     await asyncio.sleep(5)
                     continue
 
                 channel = self.bot.get_channel(channel_id)
                 if not channel:
-                    logger.warning(f"Channel not found: {channel_id}")
+                    self.logger.warning(f"Channel not found: {channel_id}")
                     await asyncio.sleep(5)
                     continue
 
                 if not os.path.exists(log_file):
-                    logger.error(f"Log file not found: {log_file}")
+                    self.logger.error(f"Log file not found: {log_file}")
                     await asyncio.sleep(5)
                     continue
 
@@ -466,7 +531,7 @@ class JKChatBridge(commands.Cog):
                             await asyncio.sleep(0.1)
                             continue
                         line = line.strip()
-                        logger.debug(f"Log line: {line}")
+                        self.logger.debug(f"Log line: {line}")
 
                         # Chat message
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
@@ -489,26 +554,26 @@ class JKChatBridge(commands.Cog):
                             self.client_names.clear()
                             self.client_teams.clear()
                             await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
-                            logger.debug("Server shutdown detected")
+                            self.logger.debug("Server shutdown detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
                         elif "------ Server Initialization ------" in line and not self.is_restarting:
                             self.is_restarting = True
                             self.client_names.clear()
                             self.client_teams.clear()
                             await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
-                            logger.debug("Server initialization detected")
+                            self.logger.debug("Server initialization detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
 
                         # Map change
                         elif "Server: " in line and self.is_restarting:
                             self.restart_map = line.split("Server: ")[1].strip()
-                            logger.debug(f"New map detected: {self.restart_map}")
+                            self.logger.debug(f"New map detected: {self.restart_map}")
                             await asyncio.sleep(10)
                             if self.restart_map:
                                 await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
                             self.is_restarting = False
                             self.restart_map = None
-                            logger.debug("Server restart/map change completed")
+                            self.logger.debug("Server restart/map change completed")
 
                         # Player joins (CS_CONNECTED to CS_PRIMED)
                         elif "Going from CS_CONNECTED to CS_PRIMED for" in line:
@@ -516,29 +581,29 @@ class JKChatBridge(commands.Cog):
                             join_name_clean = self.remove_color_codes(join_name)
                             if not join_name_clean.endswith("-Bot") and not self.is_restarting:
                                 await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
-                                logger.debug(f"Join detected: {join_name_clean}")
-                            await asyncio.sleep(2)  # Delay to ensure data is loaded
+                                self.logger.debug(f"Join detected: {join_name_clean}")
+                            await asyncio.sleep(2)
                             await self.refresh_player_data(join_name=join_name)
 
                         # Player logs in
                         elif "has logged in" in line:
                             await self.refresh_player_data()
-                            logger.debug("Login detected, player data refreshed")
+                            self.logger.debug("Login detected, player data refreshed")
 
                         # Player logs out (no name update)
                         elif "has logged out" in line:
-                            logger.debug("Logout detected, keeping stored name")
+                            self.logger.debug("Logout detected, keeping stored name")
 
                         # Player disconnects
                         elif "disconnected" in line:
-                            match = re.search(r"info:\s*(.+?)\s*disconnected\s*\((\d+)\)", line)
+                            match = re.search(r"info:\s*(.+?)\s*disconnected\s*$$ (\d+) $$", line)
                             if match:
                                 name = match.group(1)
                                 client_id = match.group(2)
                                 name_clean = self.remove_color_codes(name)
                                 if not self.is_restarting and not name_clean.endswith("-Bot") and name_clean.strip():
                                     await channel.send(f"<:jk_disconnect:1349010016044187713> **{name_clean}** has disconnected.")
-                                logger.debug(f"Disconnect detected: {name_clean} (ID: {client_id})")
+                                self.logger.debug(f"Disconnect detected: {name_clean} (ID: {client_id})")
                                 if client_id in self.client_names:
                                     del self.client_names[client_id]
                                 if client_id in self.client_teams:
@@ -552,10 +617,10 @@ class JKChatBridge(commands.Cog):
                                 team_match = re.search(r"\\t\\(\d+)", userinfo)
                                 if team_match:
                                     self.client_teams[client_id] = int(team_match.group(1))
-                                    logger.debug(f"Updated team for ID {client_id}: {self.client_teams[client_id]}")
+                                    self.logger.debug(f"Updated team for ID {client_id}: {self.client_teams[client_id]}")
 
             except Exception as e:
-                logger.error(f"Error in monitor_log: {e}")
+                self.logger.error(f"Error in monitor_log: {e}")
                 await asyncio.sleep(5)
 
     async def reset_restart_flag(self, channel):
@@ -565,7 +630,7 @@ class JKChatBridge(commands.Cog):
             self.is_restarting = False
             self.restart_map = None
             await channel.send("✅ **Server Integration Resumed**: Restart timed out, resuming normal operation.")
-            logger.debug("Restart flag reset due to timeout")
+            self.logger.debug("Restart flag reset due to timeout")
 
     def start_monitoring(self):
         """Start the log monitoring task if it's not already running."""
@@ -583,18 +648,6 @@ class JKChatBridge(commands.Cog):
                 message = chat_part[colon_index + 2:].strip()
                 return self.remove_color_codes(player_name), self.remove_color_codes(message)
         return None, None
-
-    async def cog_unload(self):
-        """Clean up when the cog is unloaded."""
-        self.monitoring = False
-        for task in [self.monitor_task]:
-            if task and not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-        self.executor.shutdown(wait=False)
 
     @commands.command(name="jkexec")
     @commands.is_owner()
