@@ -209,16 +209,31 @@ class JKChatBridge(commands.Cog):
     @jkbridge.command()
     async def reloadmonitor(self, ctx):
         """Force reload the log monitoring task."""
+        # Stop the existing task if it’s running
         if self.monitor_task and not self.monitor_task.done():
-            self.monitoring = False
-            self.monitor_task.cancel()
-            await self.monitor_task
+            self.monitoring = False  # Signal the task to stop
+            self.monitor_task.cancel()  # Cancel the task
+            try:
+                await self.monitor_task  # Wait for it to finish
+            except asyncio.CancelledError:
+                print("Monitoring task canceled successfully.")
+            except Exception as e:
+                print(f"Error canceling task: {e}")
+
+        # Brief delay to ensure the task is fully stopped
+        await asyncio.sleep(1)
+
+        # Reset any related data
         self.client_names.clear()
         self.client_teams.clear()
         self.is_restarting = False
         self.restart_map = None
         self.restart_completion_time = None
+
+        # Start the new monitoring task
         self.start_monitoring()
+
+        # Confirm to the user
         await ctx.send("Log monitoring task reloaded.")
 
     @commands.command(name="jkstatus")
