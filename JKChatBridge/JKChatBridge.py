@@ -528,12 +528,15 @@ class JKChatBridge(commands.Cog):
 
                         # Exclude specific log lines
                         if line.strip() == "" or \
-                        ("SV packet 127.0.0.1" in line and ": rcon" in line) or \
+                        ("SV packet" in line and ": rcon" in line) or \
                         ("SV packet" in line and ("getstatus" in line or "getinfo" in line)) or \
                         line.startswith("setteam:") or \
                         ("clientCommand:" in line and ("login" in line or "score" in line)) or \
                         "Updated team for ID" in line or \
+                        "*****************************Weapon Log:" in line or \
+                        "------------------------------------------------------------" in line or \
                         ("Damage:" in line and "Kills:" in line) or \
+                        ("Pickups:" in line and "Deaths:" in line) or \
                         line.startswith("Loading account:") or \
                         line.startswith("Can't find models/") or \
                         "ERROR: Server tried to modelindex" in line or \
