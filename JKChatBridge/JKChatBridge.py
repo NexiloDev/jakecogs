@@ -510,9 +510,9 @@ class JKChatBridge(commands.Cog):
                             self.restart_map = None
                             logger.debug("Server restart/map change completed")
 
-                        # Player joins (CS_FREE to CS_CONNECTED)
-                        elif "Going from CS_FREE to CS_CONNECTED for" in line:
-                            join_name = line.split("Going from CS_FREE to CS_CONNECTED for ")[1].strip()
+                        # Player joins (CS_CONNECTED to CS_PRIMED)
+                        elif "Going from CS_CONNECTED to CS_PRIMED for" in line:
+                            join_name = line.split("Going from CS_CONNECTED to CS_PRIMED for ")[1].strip()
                             join_name_clean = self.remove_color_codes(join_name)
                             if not join_name_clean.endswith("-Bot") and not self.is_restarting:
                                 await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
