@@ -632,7 +632,6 @@ class JKChatBridge(commands.Cog):
                                 team_match = re.search(r"\\t\\(\d+)", userinfo)
                                 if team_match:
                                     self.client_teams[client_id] = int(team_match.group(1))
-                                    self.logger.debug(f"Updated team for ID {client_id}: {self.client_teams[client_id]}")
 
             except Exception as e:
                 self.logger.error(f"Error in monitor_log: {e}")
