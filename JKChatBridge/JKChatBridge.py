@@ -492,26 +492,10 @@ class JKChatBridge(commands.Cog):
         return re.sub(r'\^\d', '', text)
 
     async def monitor_log(self):
-        """Monitor qconsole.log for events and trigger actions, only logging selected debug info."""
+        """Monitor qconsole.log for events and trigger actions, excluding specific lines."""
         self.monitoring = True
         log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
-        
-        # Define the allowlist for debug logs
-        allowed_debug_prefixes = [
-            "Monitoring log file: ",
-            "RAW status response in refresh_player_data:\n",
-            "Parsed from status: ID=",
-            "RAW playerlist response in refresh_player_data:\n",
-            "Parsed from playerlist: ID=",
-            "Stored in client_names: ID=",
-            "Join name matched: ID=",
-            "RAW status response in jkstatus:\n"
-        ]
-        
-        # Log the monitoring start if it matches the allowlist
-        debug_msg = f"Monitoring log file: {log_file}"
-        if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-            self.logger.debug(debug_msg)
+        self.logger.debug(f"Monitoring log file: {log_file}")
 
         while self.monitoring:
             try:
@@ -542,29 +526,26 @@ class JKChatBridge(commands.Cog):
                             continue
                         line = line.strip()
 
-                        # Exclude specific log lines (original exclusion list)
+                        # Exclude specific log lines
                         if line.strip() == "" or \
-                           ("SV packet" in line and ": rcon" in line) or \
-                           ("SV packet" in line and ("getstatus" in line or "getinfo" in line)) or \
-                           line.startswith("setteam:") or \
-                           ("clientCommand:" in line and ("login" in line or "score" in line)) or \
-                           "*****************************Weapon Log:" in line or \
-                           "------------------------------------------------------------" in line or \
-                           ("Damage:" in line and "Kills:" in line) or \
-                           ("Pickups:" in line and "Deaths:" in line) or \
-                           line.startswith("Loading account:") or \
-                           line.startswith("Can't find models/") or \
-                           "ERROR: Server tried to modelindex" in line or \
-                           "WARNING: CM_AddFacetBevels" in line or \
-                           ("Object" in line and "touching" in line and "areas at" in line) or \
-                           line.startswith("Can't find maps/") or \
-                           "CM_LoadMap" in line:
+                        ("SV packet" in line and ": rcon" in line) or \
+                        ("SV packet" in line and ("getstatus" in line or "getinfo" in line)) or \
+                        line.startswith("setteam:") or \
+                        ("clientCommand:" in line and ("login" in line or "score" in line)) or \
+                        "*****************************Weapon Log:" in line or \
+                        "------------------------------------------------------------" in line or \
+                        ("Damage:" in line and "Kills:" in line) or \
+                        ("Pickups:" in line and "Deaths:" in line) or \
+                        line.startswith("Loading account:") or \
+                        line.startswith("Can't find models/") or \
+                        "ERROR: Server tried to modelindex" in line or \
+                        "WARNING: CM_AddFacetBevels" in line or \
+                        ("Object" in line and "touching" in line and "areas at" in line) or \
+                        line.startswith("Can't find maps/") or \
+                        "CM_LoadMap" in line:
                             continue  # Skip these lines
 
-                        # Log the line only if it matches the allowlist
-                        debug_msg = f"Log line: {line}"
-                        if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-                            self.logger.debug(debug_msg)
+                        self.logger.debug(f"Log line: {line}")
 
                         # Chat message handling
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
@@ -587,34 +568,26 @@ class JKChatBridge(commands.Cog):
                             self.client_names.clear()
                             self.client_teams.clear()
                             await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
-                            debug_msg = "Server shutdown detected"
-                            if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-                                self.logger.debug(debug_msg)
+                            self.logger.debug("Server shutdown detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
                         elif "------ Server Initialization ------" in line and not self.is_restarting:
                             self.is_restarting = True
                             self.client_names.clear()
                             self.client_teams.clear()
                             await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
-                            debug_msg = "Server initialization detected"
-                            if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-                                self.logger.debug(debug_msg)
+                            self.logger.debug("Server initialization detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
 
                         # Map change handling
                         elif "Server: " in line and self.is_restarting:
                             self.restart_map = line.split("Server: ")[1].strip()
-                            debug_msg = f"New map detected: {self.restart_map}"
-                            if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-                                self.logger.debug(debug_msg)
+                            self.logger.debug(f"New map detected: {self.restart_map}")
                             await asyncio.sleep(10)
                             if self.restart_map:
                                 await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
                             self.is_restarting = False
                             self.restart_map = None
-                            debug_msg = "Server restart/map change completed"
-                            if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-                                self.logger.debug(debug_msg)
+                            self.logger.debug("Server restart/map change completed")
 
                         # Player join handling
                         elif "Going from CS_CONNECTED to CS_PRIMED for" in line:
@@ -622,37 +595,29 @@ class JKChatBridge(commands.Cog):
                             join_name_clean = self.remove_color_codes(join_name)
                             if not join_name_clean.endswith("-Bot") and not self.is_restarting:
                                 await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
-                                debug_msg = f"Join detected: {join_name_clean}"
-                                if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-                                    self.logger.debug(debug_msg)
+                                self.logger.debug(f"Join detected: {join_name_clean}")
                             await asyncio.sleep(2)
                             await self.refresh_player_data(join_name=join_name)
 
                         # Player login handling
                         elif "has logged in" in line:
                             await self.refresh_player_data()
-                            debug_msg = "Login detected, player data refreshed"
-                            if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-                                self.logger.debug(debug_msg)
+                            self.logger.debug("Login detected, player data refreshed")
 
                         # Player logout handling
                         elif "has logged out" in line:
-                            debug_msg = "Logout detected, keeping stored name"
-                            if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-                                self.logger.debug(debug_msg)
+                            self.logger.debug("Logout detected, keeping stored name")
 
                         # Player disconnect handling
                         elif "disconnected" in line:
-                            match = re.search(r"info:\s*(.+?)\s*disconnected\s*$$ (\d+) $$", line)
+                            match = re.search(r"info:\s*(.+?)\s*disconnected\s*\((\d+)\)", line)
                             if match:
                                 name = match.group(1)
                                 client_id = match.group(2)
                                 name_clean = self.remove_color_codes(name)
                                 if not self.is_restarting and not name_clean.endswith("-Bot") and name_clean.strip():
                                     await channel.send(f"<:jk_disconnect:1349010016044187713> **{name_clean}** has disconnected.")
-                                debug_msg = f"Disconnect detected: {name_clean} (ID: {client_id})"
-                                if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-                                    self.logger.debug(debug_msg)
+                                self.logger.debug(f"Disconnect detected: {name_clean} (ID: {client_id})")
                                 if client_id in self.client_names:
                                     del self.client_names[client_id]
                                 if client_id in self.client_teams:
@@ -678,19 +643,7 @@ class JKChatBridge(commands.Cog):
             self.is_restarting = False
             self.restart_map = None
             await channel.send("✅ **Server Integration Resumed**: Restart timed out, resuming normal operation.")
-            debug_msg = "Restart flag reset due to timeout"
-            allowed_debug_prefixes = [
-                "Monitoring log file: ",
-                "RAW status response in refresh_player_data:\n",
-                "Parsed from status: ID=",
-                "RAW playerlist response in refresh_player_data:\n",
-                "Parsed from playerlist: ID=",
-                "Stored in client_names: ID=",
-                "Join name matched: ID=",
-                "RAW status response in jkstatus:\n"
-            ]
-            if any(debug_msg.startswith(prefix) for prefix in allowed_debug_prefixes):
-                self.logger.debug(debug_msg)
+            self.logger.debug("Restart flag reset due to timeout")
 
     def start_monitoring(self):
         """Start the log monitoring task if it's not already running."""
