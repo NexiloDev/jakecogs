@@ -612,6 +612,23 @@ class JKChatBridge(commands.Cog):
         except Exception as e:
             await ctx.send(f"Failed to execute {filename}: {e}")
 
+    @commands.command(name="jkrcon")
+    @commands.is_owner()
+    @commands.has_permissions(administrator=True)
+    async def jkrcon(self, ctx, *, command: str):
+        """Send any RCON command to the server (Bot Owners/Admins only)."""
+        if not await self.validate_rcon_settings():
+            await ctx.send("RCON settings not fully configured.")
+            return
+        try:
+            full_command = f"rcon {command}"
+            await self.bot.loop.run_in_executor(
+                self.executor, self.send_rcon_command, command, await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
+            )
+            await ctx.send(f"RCON command sent: `{full_command}`")
+        except Exception as e:
+            await ctx.send(f"Failed to send RCON command `{full_command}`: {e}")
+
 async def setup(bot):
     """Set up the JKChatBridge cog when the bot loads."""
     await bot.add_cog(JKChatBridge(bot))
