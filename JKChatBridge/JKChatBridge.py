@@ -30,7 +30,8 @@ class JKChatBridge(commands.Cog):
             rcon_password=None,
             custom_emoji="<:jk:1219115870928900146>",
             server_executable="openjkded.x86.exe",
-            start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\start_jka_server.bat"
+            start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\start_jka_server.bat",
+            join_disconnect_enabled=True  # New config item, default True (enabled)
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
@@ -515,7 +516,8 @@ class JKChatBridge(commands.Cog):
                             join_name = line.split("Going from CS_CONNECTED to CS_PRIMED for ")[1].strip()
                             join_name_clean = self.remove_color_codes(join_name)
                             if not join_name_clean.endswith("-Bot") and not self.is_restarting:
-                                await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
+                                if await self.config.join_disconnect_enabled():  # Check toggle state
+                                    await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
                                 logger.debug(f"Join detected: {join_name_clean}")
                             await asyncio.sleep(2)  # Delay to ensure data is loaded
                             await self.refresh_player_data(join_name=join_name)
@@ -537,7 +539,8 @@ class JKChatBridge(commands.Cog):
                                 client_id = match.group(2)
                                 name_clean = self.remove_color_codes(name)
                                 if not self.is_restarting and not name_clean.endswith("-Bot") and name_clean.strip():
-                                    await channel.send(f"<:jk_disconnect:1349010016044187713> **{name_clean}** has disconnected.")
+                                    if await self.config.join_disconnect_enabled():  # Check toggle state
+                                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{name_clean}** has disconnected.")
                                 logger.debug(f"Disconnect detected: {name_clean} (ID: {client_id})")
                                 if client_id in self.client_names:
                                     del self.client_names[client_id]
@@ -628,6 +631,17 @@ class JKChatBridge(commands.Cog):
             await ctx.send(f"RCON command sent: `{full_command}`")
         except Exception as e:
             await ctx.send(f"Failed to send RCON command `{full_command}`: {e}")
+
+    @commands.command(name="jktoggle")
+    @commands.is_owner()
+    @commands.has_permissions(administrator=True)
+    async def jktoggle(self, ctx):
+        """Toggle join and disconnect messages on or off (Bot Owners/Admins only)."""
+        current_state = await self.config.join_disconnect_enabled()
+        new_state = not current_state
+        await self.config.join_disconnect_enabled.set(new_state)
+        state_text = "enabled" if new_state else "disabled"
+        await ctx.send(f"Join and disconnect messages are now **{state_text}**.")
 
 async def setup(bot):
     """Set up the JKChatBridge cog when the bot loads."""
