@@ -266,8 +266,12 @@ class JKChatBridge(commands.Cog):
                 elif "players :" in line:
                     player_count = line.split("players :")[1].strip()
 
-            players = [(cid, f"{self.client_names[cid][0]}{' (' + self.client_names[cid][1] + ')' if self.client_names[cid][1] else ''}")
-                       for cid in self.client_names.keys()]
+            # Sort players by client ID ascending
+            players = sorted(
+                [(cid, f"{self.client_names[cid][0]}{' (' + self.client_names[cid][1] + ')' if self.client_names[cid][1] else ''}")
+                 for cid in self.client_names.keys()],
+                key=lambda x: int(x[0])  # Sort by client ID as integer
+            )
             player_list = "No players online" if not players else "```\n" + "\n".join(f"{cid:<3} {name}" for cid, name in players) + "\n```"
 
             embed = discord.Embed(title=f"🌌 {server_name} 🌌", color=discord.Color.gold())
