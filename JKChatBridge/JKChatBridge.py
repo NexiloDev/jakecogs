@@ -411,21 +411,22 @@ class JKChatBridge(commands.Cog):
     def send_rcon_command(self, command, host, port, password):
         """Send an RCON command to the game server and return the response."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(5)
+        sock.settimeout(1)  # Short per-packet timeout
         packet = b'\xff\xff\xff\xffrcon ' + password.encode() + b' ' + command.encode()
         try:
             sock.sendto(packet, (host, port))
+            time.sleep(0.1)  # Brief delay to let server respond
             response = b""
             start_time = time.time()
-            while time.time() - start_time < 2:  # 2-second total timeout
+            while time.time() - start_time < 5:  # 5-second total timeout
                 try:
                     data, _ = sock.recvfrom(16384)
                     response += data
-                    # Check if we've received a complete response (ends with a newline or no more data expected)
-                    if data.endswith(b"\n") or len(data) < 16384:
+                    print(f"Received packet: {len(data)} bytes")
+                    if len(data) < 16384:  # Last packet likely
                         break
                 except socket.timeout:
-                    break  # Exit if no more data after a short timeout
+                    break  # No more data
             if not response:
                 raise Exception("No response received from server.")
             return response
