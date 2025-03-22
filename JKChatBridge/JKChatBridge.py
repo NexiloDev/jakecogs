@@ -68,7 +68,8 @@ class JKChatBridge(commands.Cog):
             print(f"RAW status response in refresh_player_data:\n{status_text}")
             status_data = {}
             parsing_players = False
-            player_line_pattern = re.compile(r'^\s*(\d+)\s+[-]?\d+\s+\d+\s+(.+?)\s+[\d\.:]+\s+\d+$')
+            # Updated regex to match client ID, score, ping, name, address, rate
+            player_line_pattern = re.compile(r'^\s*(\d+)\s+([-]?\d+)\s+(\d+)\s+(.+?)\s+(.+?)\s+(\d+)$')
             for line in status_text.splitlines():
                 if "score ping" in line:
                     parsing_players = True
@@ -77,12 +78,13 @@ class JKChatBridge(commands.Cog):
                     match = player_line_pattern.match(line)
                     if match:
                         client_id = match.group(1)
-                        name = match.group(2).strip()
+                        name = match.group(4).strip()  # Name is group 4
                         player_name = self.remove_color_codes(name)
                         status_data[client_id] = player_name
                         print(f"Parsed from status: ID={client_id}, Name={player_name}")
-                    elif not line.startswith(" ") and parsing_players:
-                        # Stop parsing if we hit a non-indented line (end of player list)
+                    else:
+                        print(f"Unmatched status line: {line}")
+                    if not line.startswith(" ") and not match:
                         parsing_players = False
 
             # Delay before playerlist command
