@@ -68,24 +68,25 @@ class JKChatBridge(commands.Cog):
             print(f"RAW status response in refresh_player_data:\n{status_text}")
             status_data = {}
             parsing_players = False
-            # Updated regex to match client ID, score, ping, name, address, rate
-            player_line_pattern = re.compile(r'^\s*(\d+)\s+([-]?\d+)\s+(\d+)\s+(.+?)\s+(.+?)\s+(\d+)$')
             for line in status_text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
                 if "score ping" in line:
                     parsing_players = True
                     continue
-                if parsing_players and line.strip():
-                    match = player_line_pattern.match(line)
-                    if match:
-                        client_id = match.group(1)
-                        name = match.group(4).strip()  # Name is group 4
+                if parsing_players:
+                    # Use column-based parsing instead of regex for reliability
+                    if len(line) >= 14 and line[0:2].strip().isdigit():
+                        client_id = line[0:2].strip()
+                        name = line[14:].split()[0]  # Take first word after columns as name
                         player_name = self.remove_color_codes(name)
                         status_data[client_id] = player_name
                         print(f"Parsed from status: ID={client_id}, Name={player_name}")
                     else:
-                        print(f"Unmatched status line: {line}")
-                    if not line.startswith(" ") and not match:
-                        parsing_players = False
+                        print(f"Skipped status line: {line}")
+                        if not line.startswith(" "):
+                            parsing_players = False
 
             # Delay before playerlist command
             await asyncio.sleep(1)
@@ -194,7 +195,7 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Server executable set to: {executable}")
 
     @jkbridge.command()
-    async def setstartbatchfile(self, ctx, batch_file: str):
+    async def setstartbatch1080file(self, ctx, batch_file: str):
         """Set the .bat file to start the server."""
         await self.config.start_batch_file.set(batch_file)
         await ctx.send(f"Start batch file set to: {batch_file}")
@@ -424,7 +425,7 @@ class JKChatBridge(commands.Cog):
         packet = b'\xff\xff\xff\xffrcon ' + password.encode() + b' ' + command.encode()
         try:
             sock.sendto(packet, (host, port))
-            response, _ = sock.recvfrom(4096)
+            response, _ = sock.recvfrom(16384)  # Increased from 4096 to 16384 for 32 players
             return response
         except socket.timeout:
             raise Exception("RCON command timed out.")
