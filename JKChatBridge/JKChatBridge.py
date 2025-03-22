@@ -418,17 +418,19 @@ class JKChatBridge(commands.Cog):
             time.sleep(0.1)  # Brief delay to let server respond
             response = b""
             start_time = time.time()
+            packet_count = 0
             while time.time() - start_time < 5:  # 5-second total timeout
                 try:
                     data, _ = sock.recvfrom(16384)
                     response += data
-                    print(f"Received packet: {len(data)} bytes")
-                    if len(data) < 16384:  # Last packet likely
-                        break
+                    packet_count += 1
+                    print(f"Received packet {packet_count}: {len(data)} bytes")
                 except socket.timeout:
+                    print(f"Stopped receiving after {packet_count} packets")
                     break  # No more data
             if not response:
                 raise Exception("No response received from server.")
+            print(f"Total packets received: {packet_count}, Total bytes: {len(response)}")
             return response
         except socket.timeout:
             raise Exception("RCON command timed out.")
