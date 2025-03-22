@@ -239,6 +239,9 @@ class JKChatBridge(commands.Cog):
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
 
+        # Send immediate feedback message
+        await ctx.send("⚙️ **Refreshing player data, please wait...**")
+
         try:
             await self.refresh_player_data()
             status_response = await self.bot.loop.run_in_executor(
