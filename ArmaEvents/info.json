@@ -1,0 +1,9 @@
+{
+  "author": ["JakeFTL"],
+  "name": "ArmaEvents",
+  "short": "Arma Reforger event bridge",
+  "description": "Posts Arma Reforger server events (joins, kills, FPS drops) to Discord via Server Admin Tools Events API.",
+  "install_msg": "Thanks for installing ArmaEvents! Use `!load ArmaEvents` to start, then configure with `!arma setchannel`, `!arma settoken`, and `!arma setaddress`. Check `!arma showsettings` to verify!",
+  "requirements": ["websocket-client"],
+  "end_user_data_statement": "This cog does not store any end user data."
+}
