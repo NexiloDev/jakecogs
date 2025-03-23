@@ -27,10 +27,9 @@ class ArmaEvents(commands.Cog):
         """Handle incoming POST requests from the Arma Events API."""
         try:
             data = await request.json()
-            print(f"ArmaEvents: Received event: {json.dumps(data)}")  # Log the raw event
+            print(f"ArmaEvents: Received event: {json.dumps(data)}")
             token = await self.config.api_token()
 
-            # Validate token if provided in Authorization header or body
             auth_header = request.headers.get('Authorization', '').replace('Bearer ', '')
             body_token = data.get('token', '')
             print(f"ArmaEvents: Auth header: {auth_header}, Body token: {body_token}, Expected: {token}")
@@ -47,15 +46,19 @@ class ArmaEvents(commands.Cog):
             event_type = data.get('type')
             print(f"ArmaEvents: Event type: {event_type}")
             if event_type == "serveradmintools_player_joined":
+                print(f"ArmaEvents: Sending join message for {data['data']['playerName']} to channel {channel_id}")
                 await channel.send(f"🧍 **[Arma] {data['data']['playerName']}** has rejoined the fight for survival!")
             elif event_type == "serveradmintools_player_killed":
                 killer = data['data']['killerName']
                 victim = data['data']['victimName']
                 if "zombie" in killer.lower():
+                    print(f"ArmaEvents: Sending zombie kill message for {victim} to channel {channel_id}")
                     await channel.send(f"🧟 **[Arma] {victim}** got mauled by a zombie! 💀")
                 else:
+                    print(f"ArmaEvents: Sending player kill message for {killer} vs {victim} to channel {channel_id}")
                     await channel.send(f"💀 **[Arma] {killer}** took down **{victim}** in the chaos! 🔪")
             elif event_type == "serveradmintools_server_fps_low":
+                print(f"ArmaEvents: Sending FPS warning to channel {channel_id}")
                 await channel.send(f"⚠️ **[Arma] Server FPS dropping** - Brace for some lag! ⏳")
 
             return web.Response(status=200)
@@ -99,6 +102,12 @@ class ArmaEvents(commands.Cog):
         self.running = False
         self.task.cancel()
         self.bot.loop.create_task(self.cleanup())
+
+    @commands.group(name="arma")
+    @commands.is_owner()
+    async def arma_group(self, ctx):
+        """Commands to configure the Arma Reforger Events API bridge."""
+        pass
 
     @commands.group(name="arma")
     @commands.is_owner()
