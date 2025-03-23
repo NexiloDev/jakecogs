@@ -1,4 +1,4 @@
-# JakeCogs - Custom Red Bot Cogs for Gaming Communities
+# JakeCogs - Red Bot Cogs for Gaming Communities
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
 ![Red-DiscordBot](https://img.shields.io/badge/Red%20Bot-3.5+-red.svg)
@@ -54,27 +54,12 @@ Welcome to `jakecogs`, my collection of custom cogs for [Red-DiscordBot](https:/
 - **Configurable**: Set everything via Discord commands.
 - **DayZ Vibes**: Tailored for zombie survival servers.
 
-#### Setup
-1. Place `armaevents.py` in `data/yourbotname/cogs/`.
-2. Install: `pip install websocket-client`.
-3. Load: `!load armaevents`.
-4. Configure (bot owner only):
-   - `!arma setchannel #channel`
-   - `!arma settoken yourtoken`
-   - `!arma setaddress ws://localhost:8080/events`
-   - `!arma showsettings` to verify.
-5. In `ServerAdminTools_Config.json`:
-   ```json
-   "eventsApiToken": "yourtoken",
-   "eventsApiAddress": "ws://localhost:8080/events",
-   "eventsApiRatelimitSeconds": 10
-
 #### Commands
 | Command                  | Description                                   | Example                                     |
 |--------------------------|-----------------------------------------------|---------------------------------------------|
 | !arma setchannel #chan   | Set the event channel.                        | !arma setchannel #arma-updates              |
 | !arma settoken token     | Set the API token.                            | !arma settoken mysticDayZ2025               |
-| !arma setaddress addr    | Set the WebSocket address.                    | !arma setaddress ws://localhost:8080/events |
+| !arma setaddress addr    | Set the HTTP address.                         | !arma setaddress http://localhost:8080/events |
 | !arma showsettings       | Show current settings.                        | !arma showsettings                          |
 
 ##### Notes

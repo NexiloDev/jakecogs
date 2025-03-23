@@ -1,6 +1,6 @@
 import discord
 from redbot.core import commands, Config
-import websocket
+from aiohttp import web
 import json
 import asyncio
 
@@ -12,60 +12,88 @@ class ArmaEvents(commands.Cog):
         self.config = Config.get_conf(self, identifier=987654321, force_registration=True)
         self.config.register_global(
             discord_channel_id=None,  # Channel to post events
-            api_token="defaultToken123",  # Default token (change this!)
-            api_address="ws://localhost:8080/events",  # Default WebSocket address
+            api_token="defaultToken123",  # Token for validation
+            api_address="http://localhost:8081/events",  # Default HTTP endpoint
+            server_port=8081  # Port for the cog's HTTP server
         )
-        self.ws = None
+        self.app = web.Application()
+        self.app.router.add_post('/events', self.handle_event)
+        self.runner = None
+        self.site = None
         self.running = True
-        self.task = self.bot.loop.create_task(self.start_websocket())
+        self.task = self.bot.loop.create_task(self.start_server())
 
-    async def start_websocket(self):
-        """Connect to the Arma Reforger Events API and listen for events."""
+    async def handle_event(self, request):
+        """Handle incoming POST requests from the Arma Events API."""
+        try:
+            data = await request.json()
+            token = await self.config.api_token()
+
+            # Validate token if provided in Authorization header or body
+            auth_header = request.headers.get('Authorization', '').replace('Bearer ', '')
+            body_token = data.get('token', '')
+            if token and token != "defaultToken123" and token not in (auth_header, body_token):
+                return web.Response(status=401, text="Unauthorized: Invalid token")
+
+            channel_id = await self.config.discord_channel_id()
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                print("ArmaEvents: Discord channel not set or invalid.")
+                return web.Response(status=200)
+
+            event_type = data.get('type')
+            if event_type == "serveradmintools_player_joined":
+                await channel.send(f"🧍 **[Arma] {data['data']['playerName']}** has rejoined the fight for survival!")
+            elif event_type == "serveradmintools_player_killed":
+                killer = data['data']['killerName']
+                victim = data['data']['victimName']
+                if "zombie" in killer.lower():
+                    await channel.send(f"🧟 **[Arma] {victim}** got mauled by a zombie! 💀")
+                else:
+                    await channel.send(f"💀 **[Arma] {killer}** took down **{victim}** in the chaos! 🔪")
+            elif event_type == "serveradmintools_server_fps_low":
+                await channel.send(f"⚠️ **[Arma] Server FPS dropping** - Brace for some lag! ⏳")
+
+            return web.Response(status=200)
+        except Exception as e:
+            print(f"ArmaEvents: Error processing event: {e}")
+            return web.Response(status=500)
+
+    async def start_server(self):
+        """Start the HTTP server to receive Arma events."""
         await self.bot.wait_until_ready()
         while self.running:
             try:
-                token = await self.config.api_token()
-                address = await self.config.api_address()
+                port = await self.config.server_port()
                 channel_id = await self.config.discord_channel_id()
-
-                if not all([token, address, channel_id]):
-                    print("ArmaEvents: Missing config (token, address, or channel). Use !arma commands to set.")
+                if not channel_id:
+                    print("ArmaEvents: Discord channel not set. Use !arma setchannel.")
                     await asyncio.sleep(10)
                     continue
 
-                self.ws = websocket.WebSocket()
-                full_address = f"{address}?token={token}"
-                self.ws.connect(full_address)
-                print(f"ArmaEvents: Connected to {full_address}")
-
+                self.runner = web.AppRunner(self.app)
+                await self.runner.setup()
+                self.site = web.TCPSite(self.runner, '0.0.0.0', port)
+                await self.site.start()
+                print(f"ArmaEvents: HTTP server running on http://0.0.0.0:{port}/events")
                 while self.running:
-                    event = json.loads(self.ws.recv())
-                    channel = self.bot.get_channel(channel_id)
-                    if channel:
-                        if event["type"] == "serveradmintools_player_joined":
-                            await channel.send(f"🧍 **[Arma] {event['data']['playerName']}** has rejoined the fight for survival!")
-                        elif event["type"] == "serveradmintools_player_killed":
-                            killer = event['data']['killerName']
-                            victim = event['data']['victimName']
-                            if "zombie" in killer.lower():  # Check if killer is an AI zombie
-                                await channel.send(f"🧟 **[Arma] {victim}** got mauled by a zombie! 💀")
-                            else:
-                                await channel.send(f"💀 **[Arma] {killer}** took down **{victim}** in the chaos! 🔪")
-                        elif event["type"] == "serveradmintools_server_fps_low":
-                            await channel.send(f"⚠️ **[Arma] Server FPS dropping** - Brace for some lag! ⏳")
-                    await asyncio.sleep(0.5)  # Yield to keep the loop smooth
+                    await asyncio.sleep(1)  # Keep the task alive
             except Exception as e:
-                print(f"ArmaEvents: WebSocket error: {e}")
-                if self.ws:
-                    self.ws.close()
+                print(f"ArmaEvents: Server error: {e}")
+                await self.cleanup()
                 await asyncio.sleep(5)
+
+    async def cleanup(self):
+        """Clean up the HTTP server."""
+        if self.site:
+            await self.site.stop()
+        if self.runner:
+            await self.runner.cleanup()
 
     def cog_unload(self):
         """Clean up when the cog is unloaded."""
-        self.running = False
-        self.task.cancel()
-        if self.ws:
-            self.ws.close()
+        self.running = False self.task.cancel()
+        self.bot.loop.create_task(self.cleanup())
 
     @commands.group(name="arma")
     @commands.is_owner()
@@ -83,16 +111,24 @@ class ArmaEvents(commands.Cog):
     async def set_token(self, ctx, token: str):
         """Set the API token for the Events API. Usage: !arma settoken yourtoken"""
         await self.config.api_token.set(token)
-        await ctx.send(f"🔑 **Token Updated!** API token is now `{token}`. Make sure it matches your `ServerAdminTools_Config.json`! ⚙️")
+        await ctx.send(f"🔑 **Token Updated!** API token is now `{token}`. Set it in `ServerAdminTools_Config.json` too! ⚙️")
 
     @arma_group.command(name="setaddress")
-    async def set_address(self, ctx, address: str):
-        """Set the WebSocket address for the Events API. Usage: !arma setaddress ws://localhost:8080/events"""
-        if not address.startswith("ws://"):
-            await ctx.send("❌ **Oops!** Address must start with `ws://` (e.g., `ws://localhost:8080/events`). Try again! 🚫")
-            return
+    async def set_address(self, ctx, address Ascendancyport = await self.config.server_port()
+        address = f"http://localhost:{port}/events"
         await self.config.api_address.set(address)
-        await ctx.send(f"🌐 **Address Set!** API address is now `{address}`. Ensure your Arma server is configured to match! 🖥️")
+        await ctx.send(f"🌐 **Address Set!** API endpoint is now `{address}`. Update `ServerAdminTools_Config.json`! 🖥️")
+
+    @arma_group.command(name="setport")
+    async def set_port(self, ctx, port: int):
+        """Set the port for the HTTP server. Usage: !arma setport 8081"""
+        if not (1024 <= port <= 65535):
+            await ctx.send("❌ **Oops!** Port must be between 1024 and 65535. Try again! 🚫")
+            return
+        await self.config.server_port.set(port)
+        address = f"http://localhost:{port}/events"
+        await self.config.api_address.set(address)
+        await ctx.send(f"🔌 **Port Set!** Server will run on port `{port}` (`{address}`). Restart the cog to apply! 🔄")
 
     @arma_group.command(name="showsettings")
     async def show_settings(self, ctx):
@@ -103,7 +139,8 @@ class ArmaEvents(commands.Cog):
             f"**Discord Channel:** {channel.mention if channel else 'Not set'} (ID: `{await self.config.discord_channel_id() or 'Not set'}`) 📢\n"
             f"**API Token:** `{await self.config.api_token()}` 🔑\n"
             f"**API Address:** `{await self.config.api_address()}` 🌐\n"
-            "🔧 Use `!arma setchannel`, `!arma settoken`, or `!arma setaddress` to tweak these!"
+            f"**Server Port:** `{await self.config.server_port()}` 🔌\n"
+            "🔧 Use `!arma setchannel`, `!arma settoken`, `!arma setaddress`, or `!arma setport` to tweak these!"
         )
         await ctx.send(settings_message)
 
