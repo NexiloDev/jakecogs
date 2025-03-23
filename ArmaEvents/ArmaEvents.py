@@ -27,12 +27,15 @@ class ArmaEvents(commands.Cog):
         """Handle incoming POST requests from the Arma Events API."""
         try:
             data = await request.json()
+            print(f"ArmaEvents: Received event: {json.dumps(data)}")  # Log the raw event
             token = await self.config.api_token()
 
             # Validate token if provided in Authorization header or body
             auth_header = request.headers.get('Authorization', '').replace('Bearer ', '')
             body_token = data.get('token', '')
+            print(f"ArmaEvents: Auth header: {auth_header}, Body token: {body_token}, Expected: {token}")
             if token and token != "defaultToken123" and token not in (auth_header, body_token):
+                print("ArmaEvents: Token validation failed")
                 return web.Response(status=401, text="Unauthorized: Invalid token")
 
             channel_id = await self.config.discord_channel_id()
@@ -42,6 +45,7 @@ class ArmaEvents(commands.Cog):
                 return web.Response(status=200)
 
             event_type = data.get('type')
+            print(f"ArmaEvents: Event type: {event_type}")
             if event_type == "serveradmintools_player_joined":
                 await channel.send(f"🧍 **[Arma] {data['data']['playerName']}** has rejoined the fight for survival!")
             elif event_type == "serveradmintools_player_killed":
