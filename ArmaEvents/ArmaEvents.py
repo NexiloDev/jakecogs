@@ -92,7 +92,8 @@ class ArmaEvents(commands.Cog):
 
     def cog_unload(self):
         """Clean up when the cog is unloaded."""
-        self.running = False self.task.cancel()
+        self.running = False
+        self.task.cancel()
         self.bot.loop.create_task(self.cleanup())
 
     @commands.group(name="arma")
@@ -114,8 +115,11 @@ class ArmaEvents(commands.Cog):
         await ctx.send(f"🔑 **Token Updated!** API token is now `{token}`. Set it in `ServerAdminTools_Config.json` too! ⚙️")
 
     @arma_group.command(name="setaddress")
-    async def set_address(self, ctx, address Ascendancyport = await self.config.server_port()
-        address = f"http://localhost:{port}/events"
+    async def set_address(self, ctx, address: str):
+        """Set the API address for the Events API. Usage: !arma setaddress http://localhost:8081/events"""
+        if not address.startswith("http://"):
+            await ctx.send("❌ **Oops!** Address must start with `http://` (e.g., `http://localhost:8081/events`). Try again! 🚫")
+            return
         await self.config.api_address.set(address)
         await ctx.send(f"🌐 **Address Set!** API endpoint is now `{address}`. Update `ServerAdminTools_Config.json`! 🖥️")
 
