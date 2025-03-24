@@ -156,11 +156,11 @@ class JKChatBridge(commands.Cog):
                 total_players = humans + bots
                 player_count = f"{total_players}/{max_players}"
 
-                # Format player list with increased Name column width
+                # Format player list with reduced Name column width (from 20 to 17)
                 player_list = "No players online" if not players else "```\n" + \
-                    "ID  | Name                  | Score\n" + \
+                    "ID  | Name               | Score\n" + \
                     "\n".join(
-                        f"{i:<3} | {self.remove_color_codes(p.get('name', 'Unknown'))[:20]:<20} |   {p.get('score', '0'):<3}"
+                        f"{i:<3} | {self.remove_color_codes(p.get('name', 'Unknown'))[:17]:<17} |   {p.get('score', '0'):<3}"
                         for i, p in enumerate(players)  # Use enumeration for client ID
                     ) + "\n```"
 
@@ -170,6 +170,10 @@ class JKChatBridge(commands.Cog):
                 embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
                 embed1.add_field(name="🎮 Mod", value="Lugormod", inline=True)
 
+                # Add a hidden field to constrain the first embed's width to match the second embed
+                table_width = 3 + 1 + 17 + 1 + 5 + 2  # ID (3) + " | " (3) + Name (17) + " | " (3) + Score (5) + padding (2)
+                embed1.add_field(name="\u200b", value=" " * table_width, inline=False)
+
                 # Add map image to the first embed without a label
                 levelshots = server_info.get("levelshotsArray", [])
                 if levelshots and levelshots[0]:
@@ -177,7 +181,7 @@ class JKChatBridge(commands.Cog):
                     image_url = f"https://pt.dogi.us/{levelshot_path}"
                     embed1.set_image(url=image_url)
 
-                # Second embed: Online Players list with adjusted width
+                # Second embed: Online Players list
                 embed2 = discord.Embed(color=discord.Color.gold())
                 embed2.add_field(name="📋 Online Players", value=player_list, inline=False)
 
