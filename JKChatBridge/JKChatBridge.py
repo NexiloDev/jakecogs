@@ -17,7 +17,6 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.24"
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord via ParaTracker JSON."""
 
     def __init__(self, bot):
@@ -30,16 +29,13 @@ class JKChatBridge(commands.Cog):
             rcon_port=29070,
             rcon_password=None,
             custom_emoji="<:jk:1219115870928900146>",
-            server_executable="openjkded.x86.exe",
-            start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\start_jka_server.bat",
             join_disconnect_enabled=True,
             tracker_url="https://pt.dogi.us/?ip=jka.mysticforces.net&port=29070&format=json"
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
-        self.client_names = {}  # {client_id: (name, username)}
-        self.client_teams = {}  # {client_id: team}
+        self.client_teams = {}  # Kept for potential future use
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
@@ -51,31 +47,6 @@ class JKChatBridge(commands.Cog):
 
     async def cog_load(self):
         logger.debug("Cog loaded.")
-
-    async def refresh_player_data(self, join_name=None):
-        """Refresh player data using ParaTracker JSON."""
-        async with aiohttp.ClientSession() as session:
-            try:
-                tracker_url = await self.config.tracker_url()
-                async with session.get(tracker_url) as response:
-                    if response.status != 200:
-                        logger.error(f"Failed to fetch tracker data: HTTP {response.status}")
-                        return
-                    data = await response.json()
-                    print(f"RAW JSON response in refresh_player_data:\n{data}")
-                    
-                    # Parse players from JSON
-                    players = data.get("players", [])
-                    self.client_names.clear()  # Reset stored data
-                    for idx, player in enumerate(players):
-                        client_id = str(idx)  # Use index as pseudo-ID
-                        name = self.remove_color_codes(player["name"])
-                        self.client_names[client_id] = (name, None)  # No username in JSON
-                        logger.debug(f"Stored from JSON: ID={client_id}, Name={name}")
-                    return data  # Return full JSON for status command
-            except Exception as e:
-                logger.error(f"Error fetching tracker data: {e}")
-                return None
 
     async def validate_rcon_settings(self):
         """Check if RCON settings are fully configured (kept for other commands)."""
@@ -129,18 +100,6 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Custom emoji set to: {emoji}")
 
     @jkbridge.command()
-    async def setserverexecutable(self, ctx, executable: str):
-        """Set the server executable name."""
-        await self.config.server_executable.set(executable)
-        await ctx.send(f"Server executable set to: {executable}")
-
-    @jkbridge.command()
-    async def setstartbatchfile(self, ctx, batch_file: str):
-        """Set the .bat file to start the server."""
-        await self.config.start_batch_file.set(batch_file)
-        await ctx.send(f"Start batch file set to: {batch_file}")
-
-    @jkbridge.command()
     async def settrackerurl(self, ctx, url: str):
         """Set the ParaTracker JSON URL."""
         await self.config.tracker_url.set(url)
@@ -158,8 +117,6 @@ class JKChatBridge(commands.Cog):
             f"RCON Port: {await self.config.rcon_port() or 'Not set'}\n"
             f"RCON Password: {'Set' if await self.config.rcon_password() else 'Not set'}\n"
             f"Custom Emoji: {await self.config.custom_emoji() or 'Not set'}\n"
-            f"Server Executable: {await self.config.server_executable() or 'Not set'}\n"
-            f"Start Batch File: {await self.config.start_batch_file() or 'Not set'}\n"
             f"Tracker URL: {await self.config.tracker_url() or 'Not set'}"
         )
         await ctx.send(settings_message)
@@ -167,49 +124,53 @@ class JKChatBridge(commands.Cog):
     @commands.command(name="jkstatus")
     async def status(self, ctx):
         """Display detailed server status with emojis using ParaTracker data."""
-        await ctx.send("⚙️ **Refreshing player data, please wait...**")
+        async with aiohttp.ClientSession() as session:
+            try:
+                tracker_url = await self.config.tracker_url()
+                async with session.get(tracker_url) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"Tracker fetch failed: HTTP {response.status} - {error_text}")
+                        await ctx.send(f"Failed to retrieve server status: HTTP {response.status} - {error_text[:100]}...")
+                        return
+                    data = await response.json()
+                    logger.debug(f"RAW JSON response in jkstatus:\n{data}")
 
-        try:
-            tracker_data = await self.refresh_player_data()
-            if not tracker_data:
-                await ctx.send("Failed to retrieve server status from tracker.")
-                return
+                server_info = data.get("serverInfo", {})
+                server_name = self.remove_color_codes(server_info.get("servername", "Unknown"))
+                mod_name = self.remove_color_codes(server_info.get("modName", "Unknown"))
+                map_name = server_info.get("mapname", "Unknown")
+                max_players = int(server_info.get("sv_maxclients", "32"))
 
-            server_info = tracker_data.get("serverInfo", {})
-            server_name = self.remove_color_codes(server_info.get("servername", "Unknown"))
-            mod_name = self.remove_color_codes(server_info.get("modName", "Unknown"))
-            map_name = server_info.get("mapname", "Unknown")
-            max_players = int(server_info.get("sv_maxclients", "32"))
+                # Count humans and bots
+                players = data.get("players", [])
+                humans = sum(1 for p in players if p["ping"] != "0")
+                bots = sum(1 for p in players if p["ping"] == "0")
+                player_count = f"{humans} humans, {bots} bots"
 
-            # Count humans and bots
-            players = tracker_data.get("players", [])
-            humans = sum(1 for p in players if p["ping"] != "0")
-            bots = sum(1 for p in players if p["ping"] == "0")
-            player_count = f"{humans} humans, {bots} bots"
+                # Format player list with scores and pings
+                player_list = "No players online" if not players else "```\n" + "Name           | Score | Ping\n" + "\n".join(
+                    f"{self.remove_color_codes(p['name']):<15} | {p['score']:<5} | {p['ping']} ms"
+                    for p in players  # Preserve JSON order
+                ) + "\n```"
 
-            # Format player list with scores and pings
-            player_list = "No players online" if not players else "```\n" + "Name           | Score | Ping\n" + "\n".join(
-                f"{self.remove_color_codes(p['name']):<15} | {p['score']:<5} | {p['ping']} ms"
-                for p in sorted(players, key=lambda x: tracker_data["players"].index(x))  # Preserve JSON order
-            ) + "\n```"
+                # Build embed
+                embed = discord.Embed(title=f"🌌 {server_name} 🌌", color=discord.Color.gold())
+                embed.add_field(name="👥 Players", value=f"{player_count} / {max_players}", inline=True)
+                embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
+                embed.add_field(name="🎮 Mod", value=mod_name, inline=True)
+                embed.add_field(name="🌍 Location", value="US West", inline=True)
+                embed.add_field(name="📋 Online Players", value=player_list, inline=False)
 
-            # Build embed
-            embed = discord.Embed(title=f"🌌 {server_name} 🌌", color=discord.Color.gold())
-            embed.add_field(name="👥 Players", value=f"{player_count} / {max_players}", inline=True)
-            embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
-            embed.add_field(name="🎮 Mod", value=mod_name, inline=True)
-            embed.add_field(name="🌍 Location", value="US West", inline=True)
-            embed.add_field(name="📋 Online Players", value=player_list, inline=False)
+                # Add map image if available
+                levelshots = server_info.get("levelshotsArray", [])
+                if levelshots:
+                    embed.set_thumbnail(url=f"https://pt.dogi.us/{levelshots[0]}")
 
-            # Add map image if available
-            levelshots = server_info.get("levelshotsArray", [])
-            if levelshots:
-                embed.set_thumbnail(url=f"https://pt.dogi.us/{levelshots[0]}")
-
-            await ctx.send(embed=embed)
-        except Exception as e:
-            logger.error(f"Error in jkstatus: {e}")
-            await ctx.send(f"Failed to retrieve server status: {e}")
+                await ctx.send(embed=embed)
+            except Exception as e:
+                logger.error(f"Error in jkstatus: {str(e)}")
+                await ctx.send(f"Failed to retrieve server status: {str(e)}")
 
     @commands.command(name="jkplayer")
     async def player_info(self, ctx, username: str):
@@ -428,14 +389,12 @@ class JKChatBridge(commands.Cog):
 
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
-                            self.client_names.clear()
                             self.client_teams.clear()
                             await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
                             logger.debug("Server shutdown detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
                         elif "------ Server Initialization ------" in line and not self.is_restarting:
                             self.is_restarting = True
-                            self.client_names.clear()
                             self.client_teams.clear()
                             await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
                             logger.debug("Server initialization detected")
@@ -458,15 +417,6 @@ class JKChatBridge(commands.Cog):
                                 if await self.config.join_disconnect_enabled():
                                     await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
                                 logger.debug(f"Join detected: {join_name_clean}")
-                            await asyncio.sleep(2)
-                            await self.refresh_player_data(join_name=join_name)
-
-                        elif "has logged in" in line:
-                            await self.refresh_player_data()
-                            logger.debug("Login detected, player data refreshed")
-
-                        elif "has logged out" in line:
-                            logger.debug("Logout detected, keeping stored name")
 
                         elif "disconnected" in line:
                             match = re.search(r"info:\s*(.+?)\s*disconnected\s*\((\d+)\)", line)
@@ -478,8 +428,6 @@ class JKChatBridge(commands.Cog):
                                     if await self.config.join_disconnect_enabled():
                                         await channel.send(f"<:jk_disconnect:1349010016044187713> **{name_clean}** has disconnected.")
                                 logger.debug(f"Disconnect detected: {name_clean} (ID: {client_id})")
-                                if client_id in self.client_names:
-                                    del self.client_names[client_id]
                                 if client_id in self.client_teams:
                                     del self.client_teams[client_id]
 
@@ -592,15 +540,11 @@ class JKChatBridge(commands.Cog):
                 print(f"Error canceling task: {e}")
 
         await asyncio.sleep(1)
-
-        self.client_names.clear()
         self.client_teams.clear()
         self.is_restarting = False
         self.restart_map = None
         self.restart_completion_time = None
-
         self.start_monitoring()
-
         await ctx.send("✅ **Log monitoring task reloaded.**")
 
 async def setup(bot):
