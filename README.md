@@ -6,7 +6,7 @@
 
 ## Hey, I’m JakeFTL!
 
-Welcome to `jakecogs`, my collection of custom cogs for [Red-DiscordBot](https://github.com/Cog-Creators/Red-DiscordBot). I built these for my Mystic Gaming community to bridge our game servers—like Jedi Knight: Jedi Academy and Arma Reforger—with Discord, keeping everyone connected and in the loop. They’re tailored to our needs, but I’ve made them flexible and well-documented so anyone can use or tweak them for their own servers. Feel free to grab them, play around, and make them yours!
+Welcome to `jakecogs`, my collection of custom cogs for [Red-DiscordBot](https://github.com/Cog-Creators/Red-DiscordBot). I built these for my gaming community to bridge our game servers—like Jedi Knight: Jedi Academy and Arma Reforger—with Discord, keeping everyone connected and in the loop. They’re tailored to our needs, but I’ve made them flexible and well-documented so anyone can use or tweak them for their own servers. Feel free to grab them, play around, and make them yours!
 
 ---
 
@@ -55,25 +55,16 @@ Welcome to `jakecogs`, my collection of custom cogs for [Red-DiscordBot](https:/
 - **DayZ Vibes**: Tailored for zombie survival servers.
 
 #### Commands
-| Command                  | Description                                   | Example                                     |
-|--------------------------|-----------------------------------------------|---------------------------------------------|
-| !arma setchannel #chan   | Set the event channel.                        | !arma setchannel #arma-updates              |
-| !arma settoken token     | Set the API token.                            | !arma settoken mysticDayZ2025               |
+| Command                  | Description                                   | Example                                       |
+|--------------------------|-----------------------------------------------|-----------------------------------------------|
+| !arma setchannel #chan   | Set the event channel.                        | !arma setchannel #arma-updates                |
+| !arma settoken token     | Set the API token.                            | !arma settoken mypassword123                  |
 | !arma setaddress addr    | Set the HTTP address.                         | !arma setaddress http://localhost:8080/events |
-| !arma showsettings       | Show current settings.                        | !arma showsettings                          |
+| !arma showsettings       | Show current settings.                        | !arma showsettings                            |
 
 ##### Notes
 - Requires Server Admin Tools mod on your Arma server.
 - Token and address must match your server config.
-
-#### Installation Basics
-1. Red Bot Setup: Have Red Bot running (Python 3.8+).
-2. Cog Folder: Drop cogs into data/yourbotname/cogs/.
-3. Dependencies: Install via pip as noted above.
-4. Load: Use [p]load cogname or !load cogname (depending on your prefix).
-
-#### Why I Made These
-I run Mystic Gaming, and we’re all about keeping our Discord buzzing with what’s happening in-game. JKChatBridge keeps our JKA crew chatting across platforms, while ArmaEvents tracks the chaos of our DayZ Reforged server—zombie maulings and all. I’ve packed them with commands and docs so you can set them up easily, whether for Mystic Gaming or your own crew.
 
 #### Contributing
 These cogs are free for anyone to use or tweak. Fork the repo, open issues, or send pull requests if you’ve got fixes or cool additions. I’ve tried to keep the code clean and the commands intuitive—dive in and make it your own!
