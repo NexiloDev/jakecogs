@@ -147,37 +147,38 @@ class JKChatBridge(commands.Cog):
                 players = data.get("players", [])
 
                 server_name = self.remove_color_codes(server_info.get("servername", "Unknown Server"))
-                map_name = server_info.get("mapname", "Unknown Map")  # Fixed: Removed extra parenthesis
+                map_name = server_info.get("mapname", "Unknown Map")
                 max_players = int(server_info.get("sv_maxclients", "32"))
 
-                # Count humans and bots with fallback
+                # Combine humans and bots into a single count
                 humans = sum(1 for p in players if p.get("ping", "0") != "0")
                 bots = sum(1 for p in players if p.get("ping", "0") == "0")
-                player_count = f"{humans} humans, {bots} bots" if players else "0 humans, 0 bots"
+                total_players = humans + bots
+                player_count = f"{total_players}/{max_players}"
 
-                # Format player list with fixed-width columns for better alignment and mobile compatibility
+                # Format player list with fixed-width columns, removing Ping column
                 player_list = "No players online" if not players else "```\n" + \
-                    "ID  | Name          | Score | Ping   \n" + \
+                    "ID  | Name            | Score\n" + \
                     "\n".join(
-                        f"{i:<3} | {self.remove_color_codes(p.get('name', 'Unknown'))[:13]:<13} | {p.get('score', '0'):<5} | {p.get('ping', 'N/A'):<6} ms"
+                        f"{i:<3} | {self.remove_color_codes(p.get('name', 'Unknown'))[:15]:<15} | {p.get('score', '0'):<5}"
                         for i, p in enumerate(players)  # Use enumeration for client ID
                     ) + "\n```"
 
-                # Build embed with static Mod and Location
-                embed = discord.Embed(title=f"🌌 {server_name} 🌌", color=discord.Color.gold())
-                embed.add_field(name="👥 Players", value=f"{player_count} / {max_players}", inline=True)
-                embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
+                # Build embed without Location field, with Map above Online Players
+                embed = discord.Embed(title=f"{server_name}", color=discord.Color.gold())
+                embed.add_field(name="👥 Players", value=player_count, inline=True)
                 embed.add_field(name="🎮 Mod", value="Lugormod", inline=True)
-                embed.add_field(name="🌍 Location", value="US West", inline=True)
-                embed.add_field(name="📋 Online Players", value=player_list, inline=False)
+                embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=False)
 
-                # Add map image on its own line using set_image for larger display
+                # Add map image above Online Players
                 levelshots = server_info.get("levelshotsArray", [])
                 if levelshots and levelshots[0]:
                     levelshot_path = quote(levelshots[0])
                     image_url = f"https://pt.dogi.us/{levelshot_path}"
-                    embed.add_field(name="🖼️ Map Preview", value="\u200b", inline=False)  # Empty field for spacing
+                    embed.add_field(name="🖼️ Map Preview", value="\u200b", inline=False)
                     embed.set_image(url=image_url)
+
+                embed.add_field(name="📋 Online Players", value=player_list, inline=False)
 
                 await ctx.send(embed=embed)
             except asyncio.TimeoutError:
