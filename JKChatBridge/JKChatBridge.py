@@ -158,7 +158,7 @@ class JKChatBridge(commands.Cog):
 
                 # Format player list with adjusted Score alignment
                 player_list = "No players online" if not players else "```\n" + \
-                    "ID  | Name               | Score\n" + \
+                    "ID  | Name              | Score\n" + \
                     "\n".join(
                         f"{i:<3} | {self.remove_color_codes(p.get('name', 'Unknown'))[:17]:<17} | {p.get('score', '0'):<5}"
                         for i, p in enumerate(players)  # Use enumeration for client ID
