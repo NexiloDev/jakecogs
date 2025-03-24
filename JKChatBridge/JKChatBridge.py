@@ -40,14 +40,13 @@ class JKChatBridge(commands.Cog):
         )
         self.is_restarting = False
         self.restart_map = None
-        self.restart_completion_time = None
         self.start_monitoring()
 
     async def cog_load(self):
         logger.debug("Cog loaded.")
 
     async def validate_rcon_settings(self):
-        """Check if RCON settings are fully configured for chat and player info commands."""
+        """Check if RCON settings are fully configured for chat and player commands."""
         return all([await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()])
 
     @commands.group(name="jkbridge", aliases=["jk"])
@@ -121,7 +120,7 @@ class JKChatBridge(commands.Cog):
 
     @commands.command(name="jkstatus")
     async def status(self, ctx):
-        """Display detailed server status with emojis using ParaTracker JSON data."""
+        """Display detailed server status with emojis using ParaTracker data."""
         async with aiohttp.ClientSession() as session:
             try:
                 tracker_url = await self.config.tracker_url()
@@ -148,36 +147,37 @@ class JKChatBridge(commands.Cog):
                 players = data.get("players", [])
 
                 server_name = self.remove_color_codes(server_info.get("servername", "Unknown Server"))
-                mod_name = self.remove_color_codes(server_info.get("modName", "Unknown Mod"))
-                map_name = server_info.get("mapname", "Unknown Map")
+                map_name = server_info.get("mapname", "Unknown Map"))
                 max_players = int(server_info.get("sv_maxclients", "32"))
-                geo_country = server_info.get("geoIPcountryName", "Unknown Location")
 
                 # Count humans and bots with fallback
                 humans = sum(1 for p in players if p.get("ping", "0") != "0")
                 bots = sum(1 for p in players if p.get("ping", "0") == "0")
                 player_count = f"{humans} humans, {bots} bots" if players else "0 humans, 0 bots"
 
-                # Format player list with positional client ID (index-based)
-                player_list = "No players online" if not players else "```\n" + "ID  | Name           | Score | Ping\n" + "\n".join(
-                    f"{i:<3} | {self.remove_color_codes(p.get('name', 'Unknown')):<15} | {p.get('score', '0'):<5} | {p.get('ping', 'N/A')} ms"
-                    for i, p in enumerate(players)  # Use enumeration for client ID
-                ) + "\n```"
+                # Format player list with fixed-width columns for better alignment and mobile compatibility
+                player_list = "No players online" if not players else "```\n" + \
+                    "ID  | Name          | Score | Ping   \n" + \
+                    "\n".join(
+                        f"{i:<3} | {self.remove_color_codes(p.get('name', 'Unknown'))[:13]:<13} | {p.get('score', '0'):<5} | {p.get('ping', 'N/A'):<6} ms"
+                        for i, p in enumerate(players)  # Use enumeration for client ID
+                    ) + "\n```"
 
-                # Build embed with fallback values
+                # Build embed with static Mod and Location
                 embed = discord.Embed(title=f"🌌 {server_name} 🌌", color=discord.Color.gold())
                 embed.add_field(name="👥 Players", value=f"{player_count} / {max_players}", inline=True)
                 embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
-                embed.add_field(name="🎮 Mod", value=mod_name, inline=True)
-                embed.add_field(name="🌍 Location", value=geo_country, inline=True)
+                embed.add_field(name="🎮 Mod", value="Lugormod", inline=True)
+                embed.add_field(name="🌍 Location", value="US West", inline=True)
                 embed.add_field(name="📋 Online Players", value=player_list, inline=False)
 
-                # Add map image if available, ensuring a valid URL
+                # Add map image on its own line using set_image for larger display
                 levelshots = server_info.get("levelshotsArray", [])
                 if levelshots and levelshots[0]:
                     levelshot_path = quote(levelshots[0])
-                    thumbnail_url = f"https://pt.dogi.us/{levelshot_path}"
-                    embed.set_thumbnail(url=thumbnail_url)
+                    image_url = f"https://pt.dogi.us/{levelshot_path}"
+                    embed.add_field(name="🖼️ Map Preview", value="\u200b", inline=False)  # Empty field for spacing
+                    embed.set_image(url=image_url)
 
                 await ctx.send(embed=embed)
             except asyncio.TimeoutError:
@@ -534,7 +534,6 @@ class JKChatBridge(commands.Cog):
         await asyncio.sleep(1)
         self.is_restarting = False
         self.restart_map = None
-        self.restart_completion_time = None
         self.start_monitoring()
         await ctx.send("✅ **Log monitoring task reloaded.**")
 
