@@ -4,8 +4,6 @@
 ![Red-DiscordBot](https://img.shields.io/badge/Red%20Bot-3.5+-red.svg)
 ![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg)
 
-## Hey, I’m JakeFTL!
-
 Welcome to `jakecogs`, my collection of custom cogs for [Red-DiscordBot](https://github.com/Cog-Creators/Red-DiscordBot). I built these for my gaming community to bridge our game servers—like Jedi Knight: Jedi Academy and Arma Reforger—with Discord, keeping everyone connected and in the loop. They’re tailored to our needs, but I’ve made them flexible and well-documented so anyone can use or tweak them for their own servers. Feel free to grab them, play around, and make them yours!
 
 ---
