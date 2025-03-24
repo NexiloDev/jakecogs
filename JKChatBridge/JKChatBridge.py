@@ -11,6 +11,7 @@ import time
 import subprocess
 import logging
 import aiohttp
+from urllib.parse import quote
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -127,7 +128,11 @@ class JKChatBridge(commands.Cog):
         async with aiohttp.ClientSession() as session:
             try:
                 tracker_url = await self.config.tracker_url()
-                async with session.get(tracker_url) as response:
+                if not tracker_url:
+                    await ctx.send("Tracker URL not configured. Use `jkbridge settrackerurl` to set it.")
+                    return
+
+                async with session.get(tracker_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status != 200:
                         error_text = await response.text()
                         logger.error(f"Tracker fetch failed: HTTP {response.status} - {error_text[:200]}")
@@ -142,38 +147,47 @@ class JKChatBridge(commands.Cog):
                     data = await response.json()
                     logger.debug(f"RAW JSON response in jkstatus:\n{data}")
 
+                # Handle case where serverInfo or players might be missing
                 server_info = data.get("serverInfo", {})
-                server_name = self.remove_color_codes(server_info.get("servername", "Unknown"))
-                mod_name = self.remove_color_codes(server_info.get("modName", "Unknown"))
-                map_name = server_info.get("mapname", "Unknown")
-                max_players = int(server_info.get("sv_maxclients", "32"))
-
-                # Count humans and bots
                 players = data.get("players", [])
-                humans = sum(1 for p in players if p["ping"] != "0")
-                bots = sum(1 for p in players if p["ping"] == "0")
-                player_count = f"{humans} humans, {bots} bots"
 
-                # Format player list with IDs, names, scores, and pings
+                server_name = self.remove_color_codes(server_info.get("servername", "Unknown Server"))
+                mod_name = self.remove_color_codes(server_info.get("modName", "Unknown Mod"))
+                map_name = server_info.get("mapname", "Unknown Map"))
+                max_players = int(server_info.get("sv_maxclients", "32"))
+                geo_country = server_info.get("geoIPcountryName", "Unknown Location")
+
+                # Count humans and bots with fallback
+                humans = sum(1 for p in players if p.get("ping", "0") != "0")
+                bots = sum(1 for p in players if p.get("ping", "0") == "0")
+                player_count = f"{humans} humans, {bots} bots" if players else "0 humans, 0 bots"
+
+                # Format player list with positional client ID (index-based)
                 player_list = "No players online" if not players else "```\n" + "ID  | Name           | Score | Ping\n" + "\n".join(
-                    f"{p.get('clientId', '??'):<3} | {self.remove_color_codes(p['name']):<15} | {p['score']:<5} | {p['ping']} ms"
-                    for p in players  # Preserve JSON order
+                    f"{i:<3} | {self.remove_color_codes(p.get('name', 'Unknown')):<15} | {p.get('score', '0'):<5} | {p.get('ping', 'N/A')} ms"
+                    for i, p in enumerate(players)  # Use enumeration for client ID
                 ) + "\n```"
 
-                # Build embed
+                # Build embed with fallback values
                 embed = discord.Embed(title=f"🌌 {server_name} 🌌", color=discord.Color.gold())
                 embed.add_field(name="👥 Players", value=f"{player_count} / {max_players}", inline=True)
                 embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
                 embed.add_field(name="🎮 Mod", value=mod_name, inline=True)
-                embed.add_field(name="🌍 Location", value="US West", inline=True)
+                embed.add_field(name="🌍 Location", value=geo_country, inline=True)  # Use GeoIP data instead of static "US West"
                 embed.add_field(name="📋 Online Players", value=player_list, inline=False)
 
-                # Add map image if available
+                # Add map image if available, ensuring a valid URL
                 levelshots = server_info.get("levelshotsArray", [])
-                if levelshots:
-                    embed.set_thumbnail(url=f"https://pt.dogi.us/{levelshots[0]}")
+                if levelshots and levelshots[0]:
+                    # Encode the path to handle spaces and special characters
+                    levelshot_path = quote(levelshots[0])
+                    thumbnail_url = f"https://pt.dogi.us/{levelshot_path}"
+                    embed.set_thumbnail(url=thumbnail_url)
 
                 await ctx.send(embed=embed)
+            except asyncio.TimeoutError:
+                logger.error("Tracker request timed out")
+                await ctx.send("Failed to retrieve server status: Request timed out")
             except Exception as e:
                 logger.error(f"Error in jkstatus: {str(e)}")
                 await ctx.send(f"Failed to retrieve server status: {str(e)}")
