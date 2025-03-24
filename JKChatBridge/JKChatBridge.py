@@ -147,7 +147,7 @@ class JKChatBridge(commands.Cog):
                 players = data.get("players", [])
 
                 server_name = self.remove_color_codes(server_info.get("servername", "Unknown Server"))
-                map_name = server_info.get("mapname", "Unknown Map"))
+                map_name = server_info.get("mapname", "Unknown Map")  # Fixed: Removed extra parenthesis
                 max_players = int(server_info.get("sv_maxclients", "32"))
 
                 # Count humans and bots with fallback
