@@ -10,14 +10,15 @@ from datetime import datetime, timedelta
 import time
 import subprocess
 import logging
+import aiohttp
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    __version__ = "1.0.23"
-    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via RCON, with log file support for Lugormod."""
+    __version__ = "1.0.24"
+    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via ParaTracker JSON."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -31,7 +32,8 @@ class JKChatBridge(commands.Cog):
             custom_emoji="<:jk:1219115870928900146>",
             server_executable="openjkded.x86.exe",
             start_batch_file="C:\\GameServers\\StarWarsJKA\\GameData\\start_jka_server.bat",
-            join_disconnect_enabled=True
+            join_disconnect_enabled=True,
+            tracker_url="https://pt.dogi.us/?ip=jka.mysticforces.net&port=29070&format=json"
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
@@ -51,84 +53,32 @@ class JKChatBridge(commands.Cog):
         logger.debug("Cog loaded.")
 
     async def refresh_player_data(self, join_name=None):
-        """Refresh player data using rcon status (primary) and playerlist (refinement)."""
-        if not await self.validate_rcon_settings():
-            logger.warning("RCON settings not configured, skipping refresh_player_data.")
-            return
-
-        try:
-            # Fetch status first (primary source for ID and initial name)
-            status_response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-            )
-            status_text = status_response.decode(errors='replace')
-            print(f"RAW status response in refresh_player_data:\n{status_text}")
-            status_data = {}
-            parsing_players = False
-            for line in status_text.splitlines():
-                if "score ping" in line:
-                    parsing_players = True
-                    continue
-                if parsing_players and line.strip():
-                    if len(line) >= 38:  # Ensure line is long enough
-                        client_id = line[0:2].strip()
-                        if client_id.isdigit():
-                            name = line[14:29].strip()  # Name field is columns 14-29
-                            player_name = self.remove_color_codes(name)
-                            status_data[client_id] = player_name
-                            print(f"Parsed from status: ID={client_id}, Name={player_name}")
-
-            # Delay before playerlist command
-            await asyncio.sleep(1)
-
-            # Fetch playerlist (refinement for non-Padawan names and usernames)
-            playerlist_response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "playerlist", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-            )
-            playerlist_text = playerlist_response.decode(errors='replace')
-            print(f"RAW playerlist response in refresh_player_data:\n{playerlist_text}")
-            playerlist_data = {}
-            for line in playerlist_text.splitlines():
-                line = line.strip()
-                if not line or "Credits in the world" in line or "Total number of registered accounts" in line or "Ind Player" in line or "----" in line:
-                    continue
-                parts = re.split(r"\s+", line)
-                if len(parts) >= 3 and parts[0].startswith("^") and self.remove_color_codes(parts[0]).isdigit():
-                    client_id = self.remove_color_codes(parts[0])
-                    name_end = len(parts)
-                    for i in range(1, len(parts)):
-                        if parts[i].isdigit() or parts[i] == "****":  # Stop at numbers or king indicator
-                            name_end = i
-                            break
-                    name_parts = parts[1:name_end]
-                    full_name = self.remove_color_codes(" ".join(name_parts))
-                    username = parts[-1] if len(parts) > name_end and not parts[-1].isdigit() else None
-                    playerlist_data[client_id] = (full_name, username)
-                    logger.debug(f"Parsed from playerlist: ID={client_id}, Name={full_name}, Username={username}")
-
-            # Update self.client_names
-            for client_id, status_name in status_data.items():
-                pl_name, username = playerlist_data.get(client_id, (status_name, None))
-                final_name = pl_name if "padawan" not in pl_name.lower() else status_name
-                self.client_names[client_id] = (final_name, username)
-                print(f"Stored in client_names: ID={client_id}, Name={final_name}, Username={username}")
-
-            # If join_name provided, ensure it’s stored with the correct ID
-            if join_name:
-                join_name_clean = self.remove_color_codes(join_name)
-                for client_id, status_name in status_data.items():
-                    if join_name_clean == self.remove_color_codes(status_name):
-                        pl_name, username = playerlist_data.get(client_id, (status_name, None))
-                        final_name = pl_name if "padawan" not in pl_name.lower() else status_name
-                        self.client_names[client_id] = (final_name, username)
-                        print(f"Join name matched: ID={client_id}, Name={final_name}, Username={username}")
-                        break
-
-        except Exception as e:
-            logger.error(f"Error in refresh_player_data: {e}")
+        """Refresh player data using ParaTracker JSON."""
+        async with aiohttp.ClientSession() as session:
+            try:
+                tracker_url = await self.config.tracker_url()
+                async with session.get(tracker_url) as response:
+                    if response.status != 200:
+                        logger.error(f"Failed to fetch tracker data: HTTP {response.status}")
+                        return
+                    data = await response.json()
+                    print(f"RAW JSON response in refresh_player_data:\n{data}")
+                    
+                    # Parse players from JSON
+                    players = data.get("players", [])
+                    self.client_names.clear()  # Reset stored data
+                    for idx, player in enumerate(players):
+                        client_id = str(idx)  # Use index as pseudo-ID
+                        name = self.remove_color_codes(player["name"])
+                        self.client_names[client_id] = (name, None)  # No username in JSON
+                        logger.debug(f"Stored from JSON: ID={client_id}, Name={name}")
+                    return data  # Return full JSON for status command
+            except Exception as e:
+                logger.error(f"Error fetching tracker data: {e}")
+                return None
 
     async def validate_rcon_settings(self):
-        """Check if RCON settings are fully configured."""
+        """Check if RCON settings are fully configured (kept for other commands)."""
         return all([await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()])
 
     @commands.group(name="jkbridge", aliases=["jk"])
@@ -191,6 +141,12 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Start batch file set to: {batch_file}")
 
     @jkbridge.command()
+    async def settrackerurl(self, ctx, url: str):
+        """Set the ParaTracker JSON URL."""
+        await self.config.tracker_url.set(url)
+        await ctx.send(f"Tracker URL set to: {url}")
+
+    @jkbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the JK chat bridge."""
         channel = self.bot.get_channel(await self.config.discord_channel_id()) if await self.config.discord_channel_id() else None
@@ -203,57 +159,53 @@ class JKChatBridge(commands.Cog):
             f"RCON Password: {'Set' if await self.config.rcon_password() else 'Not set'}\n"
             f"Custom Emoji: {await self.config.custom_emoji() or 'Not set'}\n"
             f"Server Executable: {await self.config.server_executable() or 'Not set'}\n"
-            f"Start Batch File: {await self.config.start_batch_file() or 'Not set'}"
+            f"Start Batch File: {await self.config.start_batch_file() or 'Not set'}\n"
+            f"Tracker URL: {await self.config.tracker_url() or 'Not set'}"
         )
         await ctx.send(settings_message)
 
     @commands.command(name="jkstatus")
     async def status(self, ctx):
-        """Display detailed server status with emojis using stored player data."""
-        if not await self.validate_rcon_settings():
-            await ctx.send("RCON settings not fully configured. Please contact an admin.")
-            return
-
-        # Send immediate feedback message
+        """Display detailed server status with emojis using ParaTracker data."""
         await ctx.send("⚙️ **Refreshing player data, please wait...**")
 
         try:
-            await self.refresh_player_data()
-            status_response = await self.bot.loop.run_in_executor(
-                self.executor, self.send_rcon_command, "status", await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
-            )
-            status_text = status_response.decode(errors='replace')
-            print(f"RAW status response in jkstatus:\n{status_text}")
-            status_lines = status_text.splitlines()
+            tracker_data = await self.refresh_player_data()
+            if not tracker_data:
+                await ctx.send("Failed to retrieve server status from tracker.")
+                return
 
-            server_name = "Unknown"
-            mod_name = "Unknown"
-            map_name = "Unknown"
-            player_count = "0 humans, 0 bots"
+            server_info = tracker_data.get("serverInfo", {})
+            server_name = self.remove_color_codes(server_info.get("servername", "Unknown"))
+            mod_name = self.remove_color_codes(server_info.get("modName", "Unknown"))
+            map_name = server_info.get("mapname", "Unknown")
+            max_players = int(server_info.get("sv_maxclients", "32"))
 
-            for line in status_lines:
-                if "hostname:" in line:
-                    server_name = self.remove_color_codes(line.split("hostname:")[1].strip()).encode('ascii', 'ignore').decode()
-                elif "game    :" in line:
-                    mod_name = line.split("game    :")[1].strip()
-                elif "map     :" in line:
-                    map_name = line.split("map     :")[1].split()[0].strip()
-                elif "players :" in line:
-                    player_count = line.split("players :")[1].strip()
+            # Count humans and bots
+            players = tracker_data.get("players", [])
+            humans = sum(1 for p in players if p["ping"] != "0")
+            bots = sum(1 for p in players if p["ping"] == "0")
+            player_count = f"{humans} humans, {bots} bots"
 
-            # Sort players by client ID ascending
-            players = sorted(
-                [(cid, f"{self.client_names[cid][0]}{' (' + self.client_names[cid][1] + ')' if self.client_names[cid][1] else ''}")
-                 for cid in self.client_names.keys()],
-                key=lambda x: int(x[0])  # Sort by client ID as integer
-            )
-            player_list = "No players online" if not players else "```\n" + "\n".join(f"{cid:<3} {name}" for cid, name in players) + "\n```"
+            # Format player list with scores and pings
+            player_list = "No players online" if not players else "```\n" + "Name           | Score | Ping\n" + "\n".join(
+                f"{self.remove_color_codes(p['name']):<15} | {p['score']:<5} | {p['ping']} ms"
+                for p in sorted(players, key=lambda x: tracker_data["players"].index(x))  # Preserve JSON order
+            ) + "\n```"
 
+            # Build embed
             embed = discord.Embed(title=f"🌌 {server_name} 🌌", color=discord.Color.gold())
-            embed.add_field(name="👥 Players", value=f"{player_count}", inline=True)
+            embed.add_field(name="👥 Players", value=f"{player_count} / {max_players}", inline=True)
             embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
-            embed.add_field(name="🎮 Mod", value=f"{mod_name}", inline=True)
+            embed.add_field(name="🎮 Mod", value=mod_name, inline=True)
+            embed.add_field(name="🌍 Location", value="US West", inline=True)
             embed.add_field(name="📋 Online Players", value=player_list, inline=False)
+
+            # Add map image if available
+            levelshots = server_info.get("levelshotsArray", [])
+            if levelshots:
+                embed.set_thumbnail(url=f"https://pt.dogi.us/{levelshots[0]}")
+
             await ctx.send(embed=embed)
         except Exception as e:
             logger.error(f"Error in jkstatus: {e}")
@@ -261,7 +213,7 @@ class JKChatBridge(commands.Cog):
 
     @commands.command(name="jkplayer")
     async def player_info(self, ctx, username: str):
-        """Display player stats for the given username."""
+        """Display player stats for the given username (still uses RCON)."""
         if not await self.validate_rcon_settings():
             await ctx.send("RCON settings not fully configured. Please contact an admin.")
             return
@@ -393,15 +345,15 @@ class JKChatBridge(commands.Cog):
     def send_rcon_command(self, command, host, port, password):
         """Send an RCON command to the game server and return the response."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(1)  # Short per-packet timeout
+        sock.settimeout(1)
         packet = b'\xff\xff\xff\xffrcon ' + password.encode() + b' ' + command.encode()
         try:
             sock.sendto(packet, (host, port))
-            time.sleep(0.1)  # Brief delay to let server respond
+            time.sleep(0.1)
             response = b""
             start_time = time.time()
             packet_count = 0
-            while time.time() - start_time < 5:  # 5-second total timeout
+            while time.time() - start_time < 5:
                 try:
                     data, _ = sock.recvfrom(16384)
                     response += data
@@ -409,7 +361,7 @@ class JKChatBridge(commands.Cog):
                     print(f"Received packet {packet_count}: {len(data)} bytes")
                 except socket.timeout:
                     print(f"Stopped receiving after {packet_count} packets")
-                    break  # No more data
+                    break
             if not response:
                 raise Exception("No response received from server.")
             print(f"Total packets received: {packet_count}, Total bytes: {len(response)}")
