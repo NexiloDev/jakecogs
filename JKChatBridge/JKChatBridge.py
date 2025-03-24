@@ -164,22 +164,23 @@ class JKChatBridge(commands.Cog):
                         for i, p in enumerate(players)  # Use enumeration for client ID
                     ) + "\n```"
 
-                # First embed: Server info and map preview
+                # First embed: Server info and map image (without "Map Preview" text)
                 embed1 = discord.Embed(title=f"{server_name}", color=discord.Color.gold())
                 embed1.add_field(name="👥 Players", value=player_count, inline=True)
                 embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
                 embed1.add_field(name="🎮 Mod", value="Lugormod", inline=True)
 
-                # Add map image to the first embed
+                # Add map image to the first embed without a label
                 levelshots = server_info.get("levelshotsArray", [])
                 if levelshots and levelshots[0]:
                     levelshot_path = quote(levelshots[0])
                     image_url = f"https://pt.dogi.us/{levelshot_path}"
-                    embed1.add_field(name="🖼️ Map Preview", value="\u200b", inline=False)
                     embed1.set_image(url=image_url)
 
-                # Second embed: Online Players list
+                # Second embed: Online Players list with width adjustment
                 embed2 = discord.Embed(color=discord.Color.gold())
+                # Add an invisible field to match the width of the first embed
+                embed2.add_field(name="\u200b", value="\u200b" * 30, inline=False)  # Adjust width with zero-width spaces
                 embed2.add_field(name="📋 Online Players", value=player_list, inline=False)
 
                 # Send both embeds
