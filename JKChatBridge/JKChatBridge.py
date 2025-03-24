@@ -6,9 +6,7 @@ import os
 import socket
 from concurrent.futures import ThreadPoolExecutor
 import re
-from datetime import datetime, timedelta
 import time
-import subprocess
 import logging
 import aiohttp
 from urllib.parse import quote
@@ -18,7 +16,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
-    """Bridges public chat between Jedi Knight: Jedi Academy and Discord via ParaTracker JSON."""
+    """Bridges public chat between Jedi Knight: Jedi Academy and Discord using RCON and log monitoring, with ParaTracker JSON for server status."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -36,7 +34,6 @@ class JKChatBridge(commands.Cog):
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
-        self.client_teams = {}
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
@@ -50,7 +47,7 @@ class JKChatBridge(commands.Cog):
         logger.debug("Cog loaded.")
 
     async def validate_rcon_settings(self):
-        """Check if RCON settings are fully configured (kept for other commands)."""
+        """Check if RCON settings are fully configured for chat and player info commands."""
         return all([await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()])
 
     @commands.group(name="jkbridge", aliases=["jk"])
@@ -124,7 +121,7 @@ class JKChatBridge(commands.Cog):
 
     @commands.command(name="jkstatus")
     async def status(self, ctx):
-        """Display detailed server status with emojis using ParaTracker data."""
+        """Display detailed server status with emojis using ParaTracker JSON data."""
         async with aiohttp.ClientSession() as session:
             try:
                 tracker_url = await self.config.tracker_url()
@@ -145,7 +142,6 @@ class JKChatBridge(commands.Cog):
                         await ctx.send(f"Failed to retrieve server status: Expected JSON, got {content_type}")
                         return
                     data = await response.json()
-                    logger.debug(f"RAW JSON response in jkstatus:\n{data}")
 
                 # Handle case where serverInfo or players might be missing
                 server_info = data.get("serverInfo", {})
@@ -153,7 +149,7 @@ class JKChatBridge(commands.Cog):
 
                 server_name = self.remove_color_codes(server_info.get("servername", "Unknown Server"))
                 mod_name = self.remove_color_codes(server_info.get("modName", "Unknown Mod"))
-                map_name = server_info.get("mapname", "Unknown Map"))
+                map_name = server_info.get("mapname", "Unknown Map")
                 max_players = int(server_info.get("sv_maxclients", "32"))
                 geo_country = server_info.get("geoIPcountryName", "Unknown Location")
 
@@ -173,13 +169,12 @@ class JKChatBridge(commands.Cog):
                 embed.add_field(name="👥 Players", value=f"{player_count} / {max_players}", inline=True)
                 embed.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
                 embed.add_field(name="🎮 Mod", value=mod_name, inline=True)
-                embed.add_field(name="🌍 Location", value=geo_country, inline=True)  # Use GeoIP data instead of static "US West"
+                embed.add_field(name="🌍 Location", value=geo_country, inline=True)
                 embed.add_field(name="📋 Online Players", value=player_list, inline=False)
 
                 # Add map image if available, ensuring a valid URL
                 levelshots = server_info.get("levelshotsArray", [])
                 if levelshots and levelshots[0]:
-                    # Encode the path to handle spaces and special characters
                     levelshot_path = quote(levelshots[0])
                     thumbnail_url = f"https://pt.dogi.us/{levelshot_path}"
                     embed.set_thumbnail(url=thumbnail_url)
@@ -362,7 +357,6 @@ class JKChatBridge(commands.Cog):
         """Monitor qconsole.log for events and trigger actions."""
         self.monitoring = True
         log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
-        logger.debug(f"Monitoring log file: {log_file}")
 
         while self.monitoring:
             try:
@@ -392,7 +386,6 @@ class JKChatBridge(commands.Cog):
                             await asyncio.sleep(0.1)
                             continue
                         line = line.strip()
-                        logger.debug(f"Log line: {line}")
 
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
@@ -409,26 +402,20 @@ class JKChatBridge(commands.Cog):
 
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
-                            self.client_teams.clear()
                             await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
-                            logger.debug("Server shutdown detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
                         elif "------ Server Initialization ------" in line and not self.is_restarting:
                             self.is_restarting = True
-                            self.client_teams.clear()
                             await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
-                            logger.debug("Server initialization detected")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
 
                         elif "Server: " in line and self.is_restarting:
                             self.restart_map = line.split("Server: ")[1].strip()
-                            logger.debug(f"New map detected: {self.restart_map}")
                             await asyncio.sleep(10)
                             if self.restart_map:
                                 await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
                             self.is_restarting = False
                             self.restart_map = None
-                            logger.debug("Server restart/map change completed")
 
                         elif "Going from CS_CONNECTED to CS_PRIMED for" in line:
                             join_name = line.split("Going from CS_CONNECTED to CS_PRIMED for ")[1].strip()
@@ -436,29 +423,15 @@ class JKChatBridge(commands.Cog):
                             if not join_name_clean.endswith("-Bot") and not self.is_restarting:
                                 if await self.config.join_disconnect_enabled():
                                     await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
-                                logger.debug(f"Join detected: {join_name_clean}")
 
                         elif "disconnected" in line:
                             match = re.search(r"info:\s*(.+?)\s*disconnected\s*\((\d+)\)", line)
                             if match:
                                 name = match.group(1)
-                                client_id = match.group(2)
                                 name_clean = self.remove_color_codes(name)
                                 if not self.is_restarting and not name_clean.endswith("-Bot") and name_clean.strip():
                                     if await self.config.join_disconnect_enabled():
                                         await channel.send(f"<:jk_disconnect:1349010016044187713> **{name_clean}** has disconnected.")
-                                logger.debug(f"Disconnect detected: {name_clean} (ID: {client_id})")
-                                if client_id in self.client_teams:
-                                    del self.client_teams[client_id]
-
-                        elif "ClientUserinfoChanged:" in line:
-                            match = re.search(r"ClientUserinfoChanged: (\d+) (.*)", line)
-                            if match:
-                                client_id, userinfo = match.group(1), match.group(2)
-                                team_match = re.search(r"\\t\\(\d+)", userinfo)
-                                if team_match:
-                                    self.client_teams[client_id] = int(team_match.group(1))
-                                    logger.debug(f"Updated team for ID {client_id}: {self.client_teams[client_id]}")
 
             except Exception as e:
                 logger.error(f"Error in monitor_log: {e}")
@@ -471,7 +444,6 @@ class JKChatBridge(commands.Cog):
             self.is_restarting = False
             self.restart_map = None
             await channel.send("✅ **Server Integration Resumed**: Restart timed out, resuming normal operation.")
-            logger.debug("Restart flag reset due to timeout")
 
     def start_monitoring(self):
         """Start the log monitoring task if it's not already running."""
@@ -560,7 +532,6 @@ class JKChatBridge(commands.Cog):
                 print(f"Error canceling task: {e}")
 
         await asyncio.sleep(1)
-        self.client_teams.clear()
         self.is_restarting = False
         self.restart_map = None
         self.restart_completion_time = None
