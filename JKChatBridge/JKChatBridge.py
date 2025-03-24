@@ -30,12 +30,12 @@ class JKChatBridge(commands.Cog):
             rcon_password=None,
             custom_emoji="<:jk:1219115870928900146>",
             join_disconnect_enabled=True,
-            tracker_url="https://pt.dogi.us/?ip=jka.mysticforces.net&port=29070&format=json"
+            tracker_url="https://pt.dogi.us/?ip=jka.mysticforces.net&port=29070&JSONReload=1"
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
-        self.client_teams = {}  # Kept for potential future use
+        self.client_teams = {}
         self.url_pattern = re.compile(
             r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
             re.IGNORECASE
@@ -130,8 +130,14 @@ class JKChatBridge(commands.Cog):
                 async with session.get(tracker_url) as response:
                     if response.status != 200:
                         error_text = await response.text()
-                        logger.error(f"Tracker fetch failed: HTTP {response.status} - {error_text}")
-                        await ctx.send(f"Failed to retrieve server status: HTTP {response.status} - {error_text[:100]}...")
+                        logger.error(f"Tracker fetch failed: HTTP {response.status} - {error_text[:200]}")
+                        await ctx.send(f"Failed to retrieve server status: HTTP {response.status}")
+                        return
+                    content_type = response.headers.get('Content-Type', '')
+                    if 'application/json' not in content_type:
+                        raw_text = await response.text()
+                        logger.error(f"Unexpected mimetype: {content_type} - Response: {raw_text[:200]}")
+                        await ctx.send(f"Failed to retrieve server status: Expected JSON, got {content_type}")
                         return
                     data = await response.json()
                     logger.debug(f"RAW JSON response in jkstatus:\n{data}")
@@ -148,9 +154,9 @@ class JKChatBridge(commands.Cog):
                 bots = sum(1 for p in players if p["ping"] == "0")
                 player_count = f"{humans} humans, {bots} bots"
 
-                # Format player list with scores and pings
-                player_list = "No players online" if not players else "```\n" + "Name           | Score | Ping\n" + "\n".join(
-                    f"{self.remove_color_codes(p['name']):<15} | {p['score']:<5} | {p['ping']} ms"
+                # Format player list with IDs, names, scores, and pings
+                player_list = "No players online" if not players else "```\n" + "ID  | Name           | Score | Ping\n" + "\n".join(
+                    f"{p.get('clientId', '??'):<3} | {self.remove_color_codes(p['name']):<15} | {p['score']:<5} | {p['ping']} ms"
                     for p in players  # Preserve JSON order
                 ) + "\n```"
 
