@@ -167,7 +167,7 @@ class JKChatBridge(commands.Cog):
                 # First embed: Server info and map image
                 embed1 = discord.Embed(title=f"{server_name}", color=discord.Color.gold())
                 embed1.add_field(name="👥 Players", value=player_count, inline=True)
-                embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
+                embed1.add_field(name="�n️ Map", value=f"`{map_name}`", inline=True)
                 embed1.add_field(name="🎮 Mod", value="Lugormod", inline=True)
 
                 # Add map image to the first embed without a label
@@ -406,9 +406,12 @@ class JKChatBridge(commands.Cog):
                                 loser = self.remove_color_codes(loser_with_colors)    # For Discord
                                 # Send message to Discord (unchanged, without colors)
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
-                                # Send message in-game via RCON with original colors if settings are valid
+                                # Send message in-game via RCON with original colors and special character replacement
                                 if await self.validate_rcon_settings():
-                                    duel_message = f"say ^5Nexi^7: {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5!"
+                                    # Apply special character replacements for in-game compatibility
+                                    winner_clean = winner_with_colors.replace("’", "'").replace("“", '"').replace("–", "-").replace("…", "...")
+                                    loser_clean = loser_with_colors.replace("’", "'").replace("“", '"').replace("–", "-").replace("…", "...")
+                                    duel_message = f"say ^5Nexi^7: {winner_clean} ^7has defeated {loser_clean} ^7in a duel^5!"
                                     try:
                                         await self.bot.loop.run_in_executor(
                                             self.executor, 
