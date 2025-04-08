@@ -402,7 +402,22 @@ class JKChatBridge(commands.Cog):
                             if len(parts) == 2:
                                 winner = self.remove_color_codes(parts[0].strip())
                                 loser = self.remove_color_codes(parts[1].strip())
+                                # Send message to Discord
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
+                                # Send message in-game via RCON if settings are valid
+                                if await self.validate_rcon_settings():
+                                    duel_message = f"say ^5Nexi^7: ^5{winner} ^7has defeated ^5{loser} ^7in a duel^5!"
+                                    try:
+                                        await self.bot.loop.run_in_executor(
+                                            self.executor, 
+                                            self.send_rcon_command, 
+                                            duel_message, 
+                                            await self.config.rcon_host(), 
+                                            await self.config.rcon_port(), 
+                                            await self.config.rcon_password()
+                                        )
+                                    except Exception as e:
+                                        logger.error(f"Failed to send duel message in-game: {e}")
 
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
