@@ -237,7 +237,7 @@ class JKChatBridge(commands.Cog):
             playtime = f"{playtime.split(':')[0]} Hrs"
 
         player_name = stats.get("Name", username).encode('utf-8', 'replace').decode()
-        embed = discord.Embed(title=f"Player Stats for {player_name} *({stats.get('Username', 'N/A')})*", color=discord.Color.blue())
+        embed = discord.Embed(title=f"Player Stats for {player_name} *({stats.get('Username', 'N/A')})*", color= Wdiscord.Color.blue())
         embed.add_field(name="⏱️ Playtime", value=playtime, inline=True)
         embed.add_field(name="🔼 Level", value=stats.get("Level", "N/A"), inline=True)
         embed.add_field(name="🛡️ Profession", value=stats.get("Profession", "N/A"), inline=True)
@@ -400,13 +400,15 @@ class JKChatBridge(commands.Cog):
                         elif "duel:" in line and "won a duel against" in line:
                             parts = line.split("duel:")[1].split("won a duel against")
                             if len(parts) == 2:
-                                winner = self.remove_color_codes(parts[0].strip())
-                                loser = self.remove_color_codes(parts[1].strip())
-                                # Send message to Discord
+                                winner_with_colors = parts[0].strip()  # Keep original colors
+                                loser_with_colors = parts[1].strip()   # Keep original colors
+                                winner = self.remove_color_codes(winner_with_colors)  # For Discord
+                                loser = self.remove_color_codes(loser_with_colors)    # For Discord
+                                # Send message to Discord (unchanged, without colors)
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
-                                # Send message in-game via RCON if settings are valid
+                                # Send message in-game via RCON with original colors if settings are valid
                                 if await self.validate_rcon_settings():
-                                    duel_message = f"say ^5Nexi^7: ^5{winner} ^7has defeated ^5{loser} ^7in a duel^5!"
+                                    duel_message = f"say ^5Nexi^7: {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5!"
                                     try:
                                         await self.bot.loop.run_in_executor(
                                             self.executor, 
@@ -432,7 +434,9 @@ class JKChatBridge(commands.Cog):
                             self.restart_map = line.split("Server: ")[1].strip()
                             await asyncio.sleep(10)
                             if self.restart_map:
-                                await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
+                                await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart 
+   
+_map} loaded.")
                             self.is_restarting = False
                             self.restart_map = None
 
