@@ -237,7 +237,7 @@ class JKChatBridge(commands.Cog):
             playtime = f"{playtime.split(':')[0]} Hrs"
 
         player_name = stats.get("Name", username).encode('utf-8', 'replace').decode()
-        embed = discord.Embed(title=f"Player Stats for {player_name} *({stats.get('Username', 'N/A')})*", color= Wdiscord.Color.blue())
+        embed = discord.Embed(title=f"Player Stats for {player_name} *({stats.get('Username', 'N/A')})*", color=discord.Color.blue())
         embed.add_field(name="⏱️ Playtime", value=playtime, inline=True)
         embed.add_field(name="🔼 Level", value=stats.get("Level", "N/A"), inline=True)
         embed.add_field(name="🛡️ Profession", value=stats.get("Profession", "N/A"), inline=True)
@@ -434,9 +434,7 @@ class JKChatBridge(commands.Cog):
                             self.restart_map = line.split("Server: ")[1].strip()
                             await asyncio.sleep(10)
                             if self.restart_map:
-                                await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart 
-   
-_map} loaded.")
+                                await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
                             self.is_restarting = False
                             self.restart_map = None
 
