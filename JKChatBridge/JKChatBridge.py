@@ -142,7 +142,6 @@ class JKChatBridge(commands.Cog):
                         return
                     data = await response.json()
 
-                # Handle case where serverInfo or players might be missing
                 server_info = data.get("serverInfo", {})
                 players = data.get("players", [])
 
@@ -150,38 +149,32 @@ class JKChatBridge(commands.Cog):
                 map_name = server_info.get("mapname", "Unknown Map")
                 max_players = int(server_info.get("sv_maxclients", "32"))
 
-                # Combine humans and bots into a single count
                 humans = sum(1 for p in players if p.get("ping", "0") != "0")
                 bots = sum(1 for p in players if p.get("ping", "0") == "0")
                 total_players = humans + bots
                 player_count = f"{total_players}/{max_players}"
 
-                # Format player list with adjusted Score alignment
                 player_list = "No players online" if not players else "```\n" + \
                     "ID  | Name              | Score\n" + \
                     "\n".join(
                         f"{i:<3} | {self.remove_color_codes(p.get('name', 'Unknown'))[:17]:<17} | {p.get('score', '0'):<5}"
-                        for i, p in enumerate(players)  # Use enumeration for client ID
+                        for i, p in enumerate(players)
                     ) + "\n```"
 
-                # First embed: Server info and map image
                 embed1 = discord.Embed(title=f"{server_name}", color=discord.Color.gold())
                 embed1.add_field(name="👥 Players", value=player_count, inline=True)
                 embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
                 embed1.add_field(name="🎮 Mod", value="Lugormod", inline=True)
 
-                # Add map image to the first embed without a label
                 levelshots = server_info.get("levelshotsArray", [])
                 if levelshots and levelshots[0]:
                     levelshot_path = quote(levelshots[0])
                     image_url = f"https://pt.dogi.us/{levelshot_path}"
                     embed1.set_image(url=image_url)
 
-                # Second embed: Online Players list
                 embed2 = discord.Embed(color=discord.Color.gold())
                 embed2.add_field(name="📋 Online Players", value=player_list, inline=False)
 
-                # Send both embeds
                 await ctx.send(embed=embed1)
                 await ctx.send(embed=embed2)
             except asyncio.TimeoutError:
@@ -299,34 +292,34 @@ class JKChatBridge(commands.Cog):
             await message.channel.send(f"Failed to send to game: {e}")
 
     def replace_emojis_with_names(self, text):
-        """Replace custom Discord emojis and convert standard Unicode emojis."""
+        """Replace custom Discord emojis and convert standard Unicode emojis to text representations."""
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
         emoji_map = {
             "😊": ":)", "😄": ":D", "😂": "XD", "🤣": "xD", "😉": ";)", "😛": ":P", "😢": ":(", "😡": ">:(",
             "👍": ":+1:", "👎": ":-1:", "❤️": "<3", "💖": "<3", "😍": ":*", "🙂": ":)", "😣": ":S", "😜": ";P",
             "😮": ":o", "😁": "=D", "😆": "xD", "😳": "O.o", "🤓": "B)", "😴": "-_-", "😅": "^^;", "😒": ":/",
-            "😘": ":*", "😎": "8)", "😱": "D:", "🤔": ":?", "🥳": "\\o/", "🤗": ">^.^<", "🤪": ":p"
+            "😘": ":*", "😎": "8)", "😱": "D:", "🤔": ":?", "🥳": "\\o/", "🤗": ">^.^<", "🤪": ":p",
+            "🙏": ":pray:", "👋": ":wave:", "😃": ":D", "😓": ":S", "😤": ">:(", "😋": ":P", "😶": ":-|",
+            "🥰": "<3", "🤩": "*.*", "😬": ":/", "😇": "O:)"
         }
         return ''.join(emoji_map.get(c, c) for c in text)
 
-    def replace_text_emotes_with_emojis(self, text):
-        """Convert common text emoticons from Jedi Knight to Discord emojis."""
-        text_emote_map = {
-            ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
-            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣",
-            ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
-            ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪"
-        }
-        for text_emote, emoji in text_emote_map.items():
-            text = text.replace(text_emote, emoji)
-        return text
+    def clean_for_latin1(self, text):
+        """Remove or replace characters that can't be encoded in Latin-1."""
+        # First, try to apply emoji replacements
+        text = self.replace_emojis_with_names(text)
+        # Then, filter out any remaining non-Latin-1 characters
+        return ''.join(c if ord(c) < 256 else '' for c in text)
 
     def send_rcon_command(self, command, host, port, password):
         """Send an RCON command to the game server and return the response."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(1)
-        packet = b'\xff\xff\xff\xffrcon ' + password.encode('latin-1') + b' ' + command.encode('latin-1')
+        # Clean the command and password for Latin-1 compatibility
+        clean_command = self.clean_for_latin1(command)
+        clean_password = self.clean_for_latin1(password)
+        packet = b'\xff\xff\xff\xffrcon ' + clean_password.encode('latin-1') + b' ' + clean_command.encode('latin-1')
         try:
             sock.sendto(packet, (host, port))
             time.sleep(0.1)
@@ -356,6 +349,19 @@ class JKChatBridge(commands.Cog):
     def remove_color_codes(self, text):
         """Remove Jedi Academy color codes from text."""
         return re.sub(r'\^\d', '', text)
+
+    def replace_text_emotes_with_emojis(self, text):
+        """Convert common text emoticons from Jedi Knight to Discord emojis."""
+        text_emote_map = {
+            ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
+            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣",
+            ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
+            ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
+            ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇"
+        }
+        for text_emote, emoji in text_emote_map.items():
+            text = text.replace(text_emote, emoji)
+        return text
 
     async def monitor_log(self):
         """Monitor qconsole.log for events and trigger actions."""
@@ -400,13 +406,11 @@ class JKChatBridge(commands.Cog):
                         elif "duel:" in line and "won a duel against" in line:
                             parts = line.split("duel:")[1].split("won a duel against")
                             if len(parts) == 2:
-                                winner_with_colors = parts[0].strip()  # Keep original colors
-                                loser_with_colors = parts[1].strip()   # Keep original colors
-                                winner = self.remove_color_codes(winner_with_colors)  # For Discord
-                                loser = self.remove_color_codes(loser_with_colors)    # For Discord
-                                # Send message to Discord (unchanged, without colors)
+                                winner_with_colors = parts[0].strip()
+                                loser_with_colors = parts[1].strip()
+                                winner = self.remove_color_codes(winner_with_colors)
+                                loser = self.remove_color_codes(loser_with_colors)
                                 await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
-                                # Send message in-game via RCON with original colors
                                 if await self.validate_rcon_settings():
                                     duel_message = f"say ^5Nexi^7: {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5!"
                                     try:
