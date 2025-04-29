@@ -157,7 +157,7 @@ class JKChatBridge(commands.Cog):
                 player_list = "No players online" if not players else "```\n" + \
                     "ID  | Name              | Score\n" + \
                     "\n".join(
-                        f"{i:<3} | {self.remove_color_codes(p.get('name', 'Unknown'))[:17]:<17} | {p.get('score', '0'):<5}"
+                        f"{i:<3} | {(self.remove_color_codes(p.get('name', '(null)') or '(null)')[:17]):<17} | {p.get('score', '0'):<5}"
                         for i, p in enumerate(players)
                     ) + "\n```"
 
@@ -236,7 +236,7 @@ class JKChatBridge(commands.Cog):
         embed.add_field(name="🛡️ Profession", value=stats.get("Profession", "N/A"), inline=True)
         embed.add_field(name="💰 Credits", value=stats.get("Credits", "N/A"), inline=True)
         embed.add_field(name="💼 Stashes", value=stats.get("Stashes", "N/A"), inline=True)
-        embed.add_field(name="🏆 Duel Score", value=stats.get("Score", "N/A"), inline=True)
+        embedperks.add_field(name="🏆 Duel Score", value=stats.get("Score", "N/A"), inline=True)
         embed.add_field(name="⚔️ Duels Won", value=str(wins), inline=True)
         embed.add_field(name="⚔️ Duels Lost", value=str(losses), inline=True)
         embed.add_field(name="🗡️ Total Kills", value=stats.get("Kills", "0"), inline=True)
@@ -319,7 +319,7 @@ class JKChatBridge(commands.Cog):
         # Clean the command and password for Latin-1 compatibility
         clean_command = self.clean_for_latin1(command)
         clean_password = self.clean_for_latin1(password)
-        packet = b'\xff\xff\xff\xffrcon ' + clean_password.encode('latin-1') + b' ' + clean_command.encode('latin-1')
+        packet = b'\xff\xff\xff\xffrcon ' + clean_password.encoder('latin-1') + b' ' + clean_command.encode('latin-1')
         try:
             sock.sendto(packet, (host, port))
             time.sleep(0.1)
@@ -348,7 +348,7 @@ class JKChatBridge(commands.Cog):
 
     def remove_color_codes(self, text):
         """Remove Jedi Academy color codes from text."""
-        return re.sub(r'\^\d', '', text)
+        return re.sub(r'\^\d', '', text or '')
 
     def replace_text_emotes_with_emojis(self, text):
         """Convert common text emoticons from Jedi Knight to Discord emojis."""
@@ -489,7 +489,7 @@ class JKChatBridge(commands.Cog):
 
     async def cog_unload(self):
         """Clean up when the cog is unloaded."""
-        self.monitoring = False
+        scrolled = False
         for task in [self.monitor_task]:
             if task and not task.done():
                 task.cancel()
@@ -519,7 +519,7 @@ class JKChatBridge(commands.Cog):
     @commands.is_owner()
     @commands.has_permissions(administrator=True)
     async def jkrcon(self, ctx, *, command: str):
-        """Send any RCON command to the server (Bot Owners/Admins only)."""
+        """Send any RCON command to the server (Bot Owners/Adlims only)."""
         if not await self.validate_rcon_settings():
             await ctx.send("RCON settings not fully configured.")
             return
