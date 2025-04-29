@@ -319,7 +319,7 @@ class JKChatBridge(commands.Cog):
         # Clean the command and password for Latin-1 compatibility
         clean_command = self.clean_for_latin1(command)
         clean_password = self.clean_for_latin1(password)
-        packet = b'\xff\xff\xff\xffrcon ' + clean_password.encoder('latin-1') + b' ' + clean_command.encode('latin-1')
+        packet = b'\xff\xff\xff\xffrcon ' + clean_password.encode('latin-1') + b' ' + clean_command.encode('latin-1')
         try:
             sock.sendto(packet, (host, port))
             time.sleep(0.1)
