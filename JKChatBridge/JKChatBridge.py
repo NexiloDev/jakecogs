@@ -150,6 +150,7 @@ class JKChatBridge(commands.Cog):
                     data = await response.json()
 
                 server_info = data.get("serverInfo", {})
+                info = data.get("info", {})
                 players = data.get("players", [])
 
                 server_name = self.remove_color_codes(server_info.get("servername", "Unknown Server"))
@@ -170,12 +171,11 @@ class JKChatBridge(commands.Cog):
 
                 embed1 = discord.Embed(title=f"{server_name}", color=discord.Color.gold())
                 embed1.add_field(name="👥 Players", value=player_count, inline=True)
-                embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
-                
-                mod_name = self.remove_color_codes(data.get("info", {}).get("gamename", "Unknown Mod"))
+                # Mod name from info section, cleaned
+                mod_name = self.remove_color_codes(info.get("gamename", "Unknown Mod"))
                 embed1.add_field(name="🎮 Mod", value=mod_name, inline=True)
-
-                lugormod_version = data.get("info", {}).get("Lugormod_Version")
+                # Version field if present in info section
+                lugormod_version = info.get("Lugormod_Version")
                 if lugormod_version:
                     version_clean = self.remove_color_codes(lugormod_version)
                     embed1.add_field(name="Version", value=version_clean, inline=True)
@@ -185,6 +185,8 @@ class JKChatBridge(commands.Cog):
                     levelshot_path = quote(levelshots[0])
                     image_url = f"https://pt.dogi.us/{levelshot_path}"
                     embed1.set_image(url=image_url)
+                # Map field as a non-inline field below the image
+                embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=False)
 
                 embed2 = discord.Embed(color=discord.Color.gold())
                 embed2.add_field(name="📋 Online Players", value=player_list, inline=False)
