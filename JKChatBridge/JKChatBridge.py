@@ -100,8 +100,7 @@ class JKChatBridge(commands.Cog):
     @jkbridge.command()
     async def setcustomemoji(self, ctx: commands.Context, emoji: str) -> None:
         """Set the custom emoji for game-to-Discord chat messages."""
-        await self.config.custom_emoji.set(emoji)
-        await ctx.send(f"Custom emoji set to: {emoji}")
+        await ctx.send("Custom emoji feature has been removed and is no longer used.")
 
     @jkbridge.command()
     async def settrackerurl(self, ctx: commands.Context, url: str) -> None:
@@ -179,14 +178,18 @@ class JKChatBridge(commands.Cog):
                 if lugormod_version:
                     version_clean = self.remove_color_codes(lugormod_version)
                     embed1.add_field(name="Version", value=version_clean, inline=True)
-
+                # Map field as an inline field after version
+                embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
+                # Add IP and Location fields
+                server_ip = server_info.get("serverIPAddress", "Unknown")
+                geoip = server_info.get("geoIPcountryCode", "Unknown")
+                embed1.add_field(name="IP", value=server_ip, inline=True)
+                embed1.add_field(name="Location", value=geoip.upper(), inline=True)
                 levelshots = server_info.get("levelshotsArray", [])
                 if levelshots and levelshots[0]:
                     levelshot_path = quote(levelshots[0])
                     image_url = f"https://pt.dogi.us/{levelshot_path}"
                     embed1.set_image(url=image_url)
-                # Map field as a non-inline field below the image
-                embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=False)
 
                 embed2 = discord.Embed(color=discord.Color.gold())
                 embed2.add_field(name="📋 Online Players", value=player_list, inline=False)
@@ -387,8 +390,7 @@ class JKChatBridge(commands.Cog):
         while self.monitoring:
             try:
                 channel_id = await self.config.discord_channel_id()
-                custom_emoji = await self.config.custom_emoji()
-                if not all([await self.config.log_base_path(), channel_id, custom_emoji]):
+                if not all([await self.config.log_base_path(), channel_id]):
                     logger.warning("Missing configuration, pausing monitor.")
                     await asyncio.sleep(5)
                     continue
@@ -417,7 +419,7 @@ class JKChatBridge(commands.Cog):
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message and not self.url_pattern.search(message):
                                 message = self.replace_text_emotes_with_emojis(message)
-                                await channel.send(f"{custom_emoji} **{player_name}**: {message}")
+                                await channel.send(f"**{player_name}**: {message}")
 
                         elif "duel:" in line and "won a duel against" in line:
                             parts = line.split("duel:")[1].split("won a duel against")
