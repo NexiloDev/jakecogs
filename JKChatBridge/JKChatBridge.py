@@ -21,15 +21,16 @@ class JKChatBridge(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
+        # All config values must be set by the user for their setup. No defaults are provided except for join_disconnect_enabled.
         self.config.register_global(
-            log_base_path="C:\\GameServers\\StarWarsJKA\\GameData\\lugormod",
+            log_base_path=None,
             discord_channel_id=None,
-            rcon_host="127.0.0.1",
-            rcon_port=29070,
+            rcon_host=None,
+            rcon_port=None,
             rcon_password=None,
-            custom_emoji="<:jk:1219115870928900146>",
+            custom_emoji=None,
             join_disconnect_enabled=True,
-            tracker_url="https://pt.dogi.us/?ip=jka.mysticforces.net&port=29070&JSONReload=1"
+            tracker_url=None
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
@@ -42,23 +43,29 @@ class JKChatBridge(commands.Cog):
         self.restart_map = None
         self.start_monitoring()
 
-    async def cog_load(self):
+    async def cog_load(self) -> None:
+        """Called when the cog is loaded."""
         logger.debug("Cog loaded.")
 
-    async def validate_rcon_settings(self):
+    async def validate_rcon_settings(self) -> bool:
         """Check if RCON settings are fully configured for chat and player commands."""
-        return all([await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()])
+        return all([
+            await self.config.rcon_host(),
+            await self.config.rcon_port(),
+            await self.config.rcon_password()
+        ])
 
     @commands.group(name="jkbridge", aliases=["jk"])
     @commands.is_owner()
-    async def jkbridge(self, ctx):
+    async def jkbridge(self, ctx: commands.Context) -> None:
         """Configure the JK chat bridge (also available as 'jk'). Restricted to bot owner."""
         pass
 
     @jkbridge.command()
-    async def setlogbasepath(self, ctx, path: str):
+    async def setlogbasepath(self, ctx: commands.Context, path: str) -> None:
         """Set the base path for the qconsole.log file."""
         await self.config.log_base_path.set(path)
+        # Restart monitoring if already running
         if self.monitor_task and not self.monitor_task.done():
             self.monitoring = False
             self.monitor_task.cancel()
@@ -67,43 +74,43 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Log base path set to: {path}. Monitoring task restarted.")
 
     @jkbridge.command()
-    async def setchannel(self, ctx, channel: discord.TextChannel):
+    async def setchannel(self, ctx: commands.Context, channel: discord.TextChannel) -> None:
         """Set the Discord channel for the chat bridge."""
         await self.config.discord_channel_id.set(channel.id)
         await ctx.send(f"Discord channel set to: {channel.name} (ID: {channel.id})")
 
     @jkbridge.command()
-    async def setrconhost(self, ctx, host: str):
+    async def setrconhost(self, ctx: commands.Context, host: str) -> None:
         """Set the RCON host (IP or address)."""
         await self.config.rcon_host.set(host)
         await ctx.send(f"RCON host set to: {host}")
 
     @jkbridge.command()
-    async def setrconport(self, ctx, port: int):
+    async def setrconport(self, ctx: commands.Context, port: int) -> None:
         """Set the RCON port."""
         await self.config.rcon_port.set(port)
         await ctx.send(f"RCON port set to: {port}")
 
     @jkbridge.command()
-    async def setrconpassword(self, ctx, password: str):
+    async def setrconpassword(self, ctx: commands.Context, password: str) -> None:
         """Set the RCON password."""
         await self.config.rcon_password.set(password)
         await ctx.send("RCON password set.")
 
     @jkbridge.command()
-    async def setcustomemoji(self, ctx, emoji: str):
+    async def setcustomemoji(self, ctx: commands.Context, emoji: str) -> None:
         """Set the custom emoji for game-to-Discord chat messages."""
         await self.config.custom_emoji.set(emoji)
         await ctx.send(f"Custom emoji set to: {emoji}")
 
     @jkbridge.command()
-    async def settrackerurl(self, ctx, url: str):
+    async def settrackerurl(self, ctx: commands.Context, url: str) -> None:
         """Set the ParaTracker JSON URL."""
         await self.config.tracker_url.set(url)
         await ctx.send(f"Tracker URL set to: {url}")
 
     @jkbridge.command()
-    async def showsettings(self, ctx):
+    async def showsettings(self, ctx: commands.Context) -> None:
         """Show the current settings for the JK chat bridge."""
         channel = self.bot.get_channel(await self.config.discord_channel_id()) if await self.config.discord_channel_id() else None
         settings_message = (
@@ -164,7 +171,14 @@ class JKChatBridge(commands.Cog):
                 embed1 = discord.Embed(title=f"{server_name}", color=discord.Color.gold())
                 embed1.add_field(name="👥 Players", value=player_count, inline=True)
                 embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
-                embed1.add_field(name="🎮 Mod", value="Lugormod", inline=True)
+                
+                mod_name = self.remove_color_codes(server_info.get("gamename", "Unknown Mod"))
+                embed1.add_field(name="🎮 Mod", value=mod_name, inline=True)
+
+                lugormod_version = server_info.get("Lugormod_Version")
+                if lugormod_version:
+                    version_clean = self.remove_color_codes(lugormod_version)
+                    embed1.add_field(name="Version", value=version_clean, inline=True)
 
                 levelshots = server_info.get("levelshotsArray", [])
                 if levelshots and levelshots[0]:
@@ -236,7 +250,7 @@ class JKChatBridge(commands.Cog):
         embed.add_field(name="🛡️ Profession", value=stats.get("Profession", "N/A"), inline=True)
         embed.add_field(name="💰 Credits", value=stats.get("Credits", "N/A"), inline=True)
         embed.add_field(name="💼 Stashes", value=stats.get("Stashes", "N/A"), inline=True)
-        embedperks.add_field(name="🏆 Duel Score", value=stats.get("Score", "N/A"), inline=True)
+        embed.add_field(name="🏆 Duel Score", value=stats.get("Score", "N/A"), inline=True)
         embed.add_field(name="⚔️ Duels Won", value=str(wins), inline=True)
         embed.add_field(name="⚔️ Duels Lost", value=str(losses), inline=True)
         embed.add_field(name="🗡️ Total Kills", value=stats.get("Kills", "0"), inline=True)
@@ -489,7 +503,6 @@ class JKChatBridge(commands.Cog):
 
     async def cog_unload(self):
         """Clean up when the cog is unloaded."""
-        scrolled = False
         for task in [self.monitor_task]:
             if task and not task.done():
                 task.cancel()
