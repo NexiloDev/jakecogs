@@ -172,10 +172,10 @@ class JKChatBridge(commands.Cog):
                 embed1.add_field(name="👥 Players", value=player_count, inline=True)
                 embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
                 
-                mod_name = self.remove_color_codes(server_info.get("gamename", "Unknown Mod"))
+                mod_name = self.remove_color_codes(data.get("info", {}).get("gamename", "Unknown Mod"))
                 embed1.add_field(name="🎮 Mod", value=mod_name, inline=True)
 
-                lugormod_version = server_info.get("Lugormod_Version")
+                lugormod_version = data.get("info", {}).get("Lugormod_Version")
                 if lugormod_version:
                     version_clean = self.remove_color_codes(lugormod_version)
                     embed1.add_field(name="Version", value=version_clean, inline=True)
