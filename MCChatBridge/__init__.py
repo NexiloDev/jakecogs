@@ -1,4 +1,5 @@
 from .MCChatBridge import MCChatBridge
 
-def setup(bot):
-    bot.add_cog(MCChatBridge(bot))
+async def setup(bot):
+    cog = MCChatBridge(bot)
+    await bot.add_cog(cog)
