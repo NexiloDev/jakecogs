@@ -121,9 +121,10 @@ class MCChatBridge(commands.Cog):
 
         # Calculate prefix and maximum segment length
         prefix = f"{author_name}: "
+        prefix_length = len(prefix)
         max_segment_length = 200  # Safe limit for message content
         max_total_length = 256  # Minecraft's max chat length
-        max_content_length = max_segment_length * 2  # Max for two segments
+        max_content_length = (max_segment_length * 2) - prefix_length  # Max for two segments, accounting for second prefix
 
         # Check if the message fits in one segment
         full_message = f"{prefix}{message}"
@@ -144,13 +145,12 @@ class MCChatBridge(commands.Cog):
                 self.logger.error(f"Failed to send to Minecraft: host={host}, port={port}, error={str(e)}", exc_info=True)
                 raise
         else:
-            # Calculate maximum content length for two segments
-            prefix_length = len(prefix)
-            max_content = max_content_length - prefix_length  # Adjust for second segment's prefix
-            if len(message) > max_content:
-                # Truncate message to fit in two segments, add ...
-                message = message[:max_content - 3] + "..."  # Reserve 3 chars for ...
-                self.logger.info(f"Message truncated to {max_content} characters with '...' suffix for author {author_name}")
+            # Truncate message if it exceeds two segments
+            if len(message) > max_content_length:
+                # Reserve 3 chars for ... and ensure second segment fits
+                truncated_length = max_content_length - 3
+                message = message[:truncated_length] + "..."
+                self.logger.info(f"Message truncated from {len(message) + 3} to {len(message)} characters with '...' suffix for author {author_name}")
 
             # Split message into segments
             segments = []
@@ -171,7 +171,7 @@ class MCChatBridge(commands.Cog):
             responses = []
             for i, segment in enumerate(segments[:2]):  # Limit to two segments
                 segment_message = f"{prefix}{segment}"
-                if len(segment_message) > max Behövs_length:
+                if len(segment_message) > max_total_length:
                     self.logger.warning(f"Segment {i+1} too long even after splitting: {len(segment_message)} characters")
                     continue
                 self.logger.info(f"Attempting to send to Minecraft (segment {i+1}/{len(segments)}): host={host}, port={port}, message=[Discord] {author_name}: {segment}")
