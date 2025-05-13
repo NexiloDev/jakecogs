@@ -7,6 +7,7 @@ import asyncio
 import rcon.source
 import json
 import random
+import logging
 
 class MCChatBridge(commands.Cog):
     def __init__(self, bot):
@@ -34,9 +35,14 @@ class MCChatBridge(commands.Cog):
             "was shot by": "🏹",
             "was killed by": "💀"
         }
+        self.logger = logging.getLogger("red.MCChatBridge")
 
     async def cog_load(self):
-        await self.start_webhook_server()
+        try:
+            await self.start_webhook_server()
+        except Exception as e:
+            self.logger.error(f"Failed to start webhook server: {str(e)}")
+            raise
 
     async def cog_unload(self):
         if self.webhook_task:
@@ -49,9 +55,15 @@ class MCChatBridge(commands.Cog):
         port = await self.config.guild(guild).webhook_port()
         runner = web.AppRunner(self.webhook_app)
         await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', port)
-        await site.start()
-        self.webhook_task = asyncio.create_task(asyncio.sleep(0))
+        try:
+            site = web.TCPSite(runner, '0.0.0.0', port)
+            await site.start()
+            self.logger.info(f"Webhook server started on port {port}")
+            self.webhook_task = asyncio.create_task(asyncio.sleep(0))
+        except OSError as e:
+            self.logger.error(f"Failed to bind to port {port}: {str(e)}")
+            self.logger.error(f"Port {port} is in use. Use [p]mcbridge setwebhookport <new_port> to change it (e.g., 8081).")
+            raise
 
     async def handle_webhook(self, request):
         guild = self.bot.guilds[0]
