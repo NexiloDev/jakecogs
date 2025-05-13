@@ -80,7 +80,11 @@ class MCChatBridge(commands.Cog):
             return web.Response(status=400, text="Channel not found")
 
         if event == "chat":
-            await channel.send(f"**{content}**")
+            try:
+                player_name, message = content.split(": ", 1)
+                await channel.send(f"**{player_name}**: {message}")
+            except ValueError:
+                await channel.send(f"**{content}**")
         elif event == "connect":
             player_name = content.split(" joined the server")[0]
             await channel.send(f"<:jk_connect:1349009924306374756> **{player_name}** has joined the game!")
@@ -96,6 +100,43 @@ class MCChatBridge(commands.Cog):
             return web.Response(status=400, text="Unknown event")
 
         return web.Response(status=200)
+
+    async def send_to_minecraft(self, message, author_name):
+        guild = self.bot.guilds[0]
+        host = await self.config.guild(guild).rcon_host()
+        port = await self.config.guild(guild).rcon_port()
+        password = await self.config.guild(guild).rcon_password()
+
+        try:
+            client = rcon.source.Client(host, port, passwd=password)
+            await client.connect()
+            try:
+                response = client.run(f"say [Discord] {author_name}: {message}")
+                self.logger.info(f"Sent to Minecraft: [Discord] {author_name}: {message}")
+                return response
+            finally:
+                client.close()
+        except Exception as e:
+            self.logger.error(f"Failed to send to Minecraft: {str(e)}")
+            raise
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if message.author.bot:
+            return
+        guild = message.guild
+        if not guild:
+            return
+        channel_id = await self.config.guild(guild).discord_channel_id()
+        if message.channel.id != channel_id:
+            return
+        if message.content.startswith(await self.bot.get_prefix(message)):
+            return
+        try:
+            await self.send_to_minecraft(message.content, message.author.name)
+        except Exception as e:
+            self.logger.error(f"Failed to forward Discord message to Minecraft: {str(e)}")
+        await self.bot.process_commands(message)
 
     @commands.command()
     async def mcstatus(self, ctx):
@@ -124,25 +165,8 @@ class MCChatBridge(commands.Cog):
             finally:
                 client.close()
         except Exception as e:
+            self.logger.error(f"RCON error in mcstatus: {str(e)}")
             await ctx.send(f"Failed to connect to server: {str(e)}")
-
-    @commands.command()
-    async def mcchat(self, ctx, *, message):
-        guild = ctx.guild
-        host = await self.config.guild(guild).rcon_host()
-        port = await self.config.guild(guild).rcon_port()
-        password = await self.config.guild(guild).rcon_password()
-
-        try:
-            client = rcon.source.Client(host, port, passwd=password)
-            await client.connect()
-            try:
-                client.run(f"say [Discord] {ctx.author.name}: {message}")
-                await ctx.send("Message sent to Minecraft server!")
-            finally:
-                client.close()
-        except Exception as e:
-            await ctx.send(f"Failed to send message: {str(e)}")
 
     @commands.group(name="mcbridge", aliases=["mc"])
     @commands.is_owner()
@@ -165,7 +189,7 @@ class MCChatBridge(commands.Cog):
     @mcbridge.command()
     async def setrconport(self, ctx, port: int):
         """Set the RCON port."""
-        await self.config.guild(guild).rcon_port.set(port)
+        await self.config.guild(ctx.guild).rcon_port.set(port)
         await ctx.send(f"RCON port set to: {port}")
 
     @mcbridge.command()
