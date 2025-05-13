@@ -108,12 +108,12 @@ class MCChatBridge(commands.Cog):
             client = rcon.source.Client(host, port, passwd=password)
             await client.connect()
             try:
-                response = await client.run("list")
+                response = client.run("list")
                 players = response.split(": ")[1] if ": " in response else "None"
-                server_info = await client.run("version")
+                server_info = client.run("version")
                 version = server_info.split(" ")[2] if len(server_info.split(" ")) > 2 else "Unknown"
-                max_players = await client.run("get maxplayers")
-                uptime = await client.run("uptime")
+                max_players = client.run("get maxplayers")
+                uptime = client.run("uptime")
 
                 embed = discord.Embed(title="Minecraft Server Status", color=discord.Color.blue())
                 embed.add_field(name="Online Players", value=players, inline=False)
@@ -137,7 +137,7 @@ class MCChatBridge(commands.Cog):
             client = rcon.source.Client(host, port, passwd=password)
             await client.connect()
             try:
-                await client.run(f"say [Discord] {ctx.author.name}: {message}")
+                client.run(f"say [Discord] {ctx.author.name}: {message}")
                 await ctx.send("Message sent to Minecraft server!")
             finally:
                 client.close()
@@ -165,7 +165,7 @@ class MCChatBridge(commands.Cog):
     @mcbridge.command()
     async def setrconport(self, ctx, port: int):
         """Set the RCON port."""
-        await self.config.guild(ctx.guild).rcon_port.set(port)
+        await self.config.guild(guild).rcon_port.set(port)
         await ctx.send(f"RCON port set to: {port}")
 
     @mcbridge.command()
