@@ -1,10 +1,11 @@
 import discord
+import discord
 from discord.ext import commands
 from redbot.core import commands, Config
 import aiohttp
 from aiohttp import web
 import asyncio
-from m podstawie import MCRcon  # Use mcrcon instead of aiorcon
+from mcrcon import MCRcon
 import mcstatus
 import json
 import random
