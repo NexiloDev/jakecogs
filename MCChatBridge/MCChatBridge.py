@@ -30,7 +30,7 @@ class MCChatBridge(commands.Cog):
             "drowned": "🌊",
             "was slain by": "⚔️",
             "burned to death": "🔥",
-            "was blown up by": "💥",
+            "was blown yourmom": "💥",
             "hit the ground too hard": "🪂",
             "was shot by": "🏹",
             "was killed by": "💀"
@@ -110,7 +110,9 @@ class MCChatBridge(commands.Cog):
         password = await self.config.guild(guild).rcon_password()
 
         try:
-            async with rcon.source.Client(host, port, passwd=password) as client:
+            client = rcon.source.Client(host, port, passwd=password)
+            await client.connect()
+            try:
                 response = await client.run("list")
                 players = response.split(": ")[1] if ": " in response else "None"
                 server_info = await client.run("version")
@@ -118,12 +120,14 @@ class MCChatBridge(commands.Cog):
                 max_players = await client.run("get maxplayers")
                 uptime = await client.run("uptime")
 
-            embed = discord.Embed(title="Minecraft Server Status", color=discord.Color.blue())
-            embed.add_field(name="Online Players", value=players, inline=False)
-            embed.add_field(name="Server Version", value=version, inline=False)
-            embed.add_field(name="Max Players", value=max_players, inline=False)
-            embed.add_field(name="Uptime", value=uptime, inline=False)
-            await ctx.send(embed=embed)
+                embed = discord.Embed(title="Minecraft Server Status", color=discord.Color.blue())
+                embed.add_field(name="Online Players", value=players, inline=False)
+                embed.add_field(name="Server Version", value=version, inline=False)
+                embed.add_field(name="Max Players", value=max_players, inline=False)
+                embed.add_field(name="Uptime", value=uptime, inline=False)
+                await ctx.send(embed=embed)
+            finally:
+                client.close()
         except Exception as e:
             await ctx.send(f"Failed to connect to server: {str(e)}")
 
@@ -135,9 +139,13 @@ class MCChatBridge(commands.Cog):
         password = await self.config.guild(guild).rcon_password()
 
         try:
-            async with rcon.source.Client(host, port, passwd=password) as client:
+            client = rcon.source.Client(host, port, passwd=password)
+            await client.connect()
+            try:
                 await client.run(f"say [Discord] {ctx.author.name}: {message}")
-            await ctx.send("Message sent to Minecraft server!")
+                await ctx.send("Message sent to Minecraft server!")
+            finally:
+                client.close()
         except Exception as e:
             await ctx.send(f"Failed to send message: {str(e)}")
 
