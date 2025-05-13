@@ -19,7 +19,7 @@ class MCChatBridge(commands.Cog):
             "rcon_port": 25575,
             "rcon_password": "",
             "webhook_port": 8080,
-            "secret_token": "x7b9p2q8r5t3"
+            "secret_token": ""
         }
         self.config.register_guild(**default_guild)
         self.webhook_app = web.Application()
@@ -30,7 +30,7 @@ class MCChatBridge(commands.Cog):
             "drowned": "🌊",
             "was slain by": "⚔️",
             "burned to death": "🔥",
-            "was blown yourmom": "💥",
+            "was blown up by": "💥",
             "hit the ground too hard": "🪂",
             "was shot by": "🏹",
             "was killed by": "💀"
@@ -79,27 +79,22 @@ class MCChatBridge(commands.Cog):
         if not channel:
             return web.Response(status=400, text="Channel not found")
 
-        embed = discord.Embed()
         if event == "chat":
-            embed.color = discord.Color.blue()
-            embed.description = f"**{content}**"
+            await channel.send(f"**{content}**")
         elif event == "connect":
-            embed.color = discord.Color.green()
-            embed.description = f"🎮 **{content}** has joined!"
+            player_name = content.split(" joined the server")[0]
+            await channel.send(f"<:jk_connect:1349009924306374756> **{player_name}** has joined the game!")
         elif event == "disconnect":
-            embed.color = discord.Color.red()
-            embed.description = f"🚪 **{content}** has left!"
+            player_name = content.split(" left the server")[0]
+            await channel.send(f"<:jk_disconnect:1349010016044187713> **{player_name}** has disconnected.")
         elif event == "death":
             emoji = next((e for k, e in self.death_emojis.items() if k in content.lower()), "💀")
-            embed.color = discord.Color.dark_red()
-            embed.description = f"{emoji} **{content}**"
+            await channel.send(f"{emoji} **{content}**")
         elif event == "advancement":
-            embed.color = discord.Color.purple()
-            embed.description = f"🏆 **{content}** has made the advancement!"
+            await channel.send(f"🏆 **{content}**")
         else:
             return web.Response(status=400, text="Unknown event")
 
-        await channel.send(embed=embed)
         return web.Response(status=200)
 
     @commands.command()
