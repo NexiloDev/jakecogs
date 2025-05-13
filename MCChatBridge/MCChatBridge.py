@@ -108,10 +108,14 @@ class MCChatBridge(commands.Cog):
         password = await self.config.guild(guild).rcon_password()
 
         try:
-            async with rcon.source.async_client(host, port, passwd=password, timeout=5) as client:
-                response = await client.run(f"say [Discord] {author_name}: {message}")
+            client = rcon.source.Client(host, port, passwd=password)
+            await client.connect()
+            try:
+                response = client.run(f"say [Discord] {author_name}: {message}")
                 self.logger.info(f"Sent to Minecraft: [Discord] {author_name}: {message}")
                 return response
+            finally:
+                client.close()
         except Exception as e:
             self.logger.error(f"Failed to send to Minecraft: {str(e)}")
             raise
@@ -142,13 +146,15 @@ class MCChatBridge(commands.Cog):
         password = await self.config.guild(guild).rcon_password()
 
         try:
-            async with rcon.source.async_client(host, port, passwd=password, timeout=5) as client:
-                response = await client.run("list")
+            client = rcon.source.Client(host, port, passwd=password)
+            await client.connect()
+            try:
+                response = client.run("list")
                 players = response.split(": ")[1] if ": " in response else "None"
-                server_info = await client.run("version")
+                server_info = client.run("version")
                 version = server_info.split(" ")[2] if len(server_info.split(" ")) > 2 else "Unknown"
-                max_players = await client.run("get maxplayers")
-                uptime = await client.run("uptime")
+                max_players = client.run("get maxplayers")
+                uptime = client.run("uptime")
 
                 embed = discord.Embed(title="Minecraft Server Status", color=discord.Color.blue())
                 embed.add_field(name="Online Players", value=players, inline=False)
@@ -156,6 +162,8 @@ class MCChatBridge(commands.Cog):
                 embed.add_field(name="Max Players", value=max_players, inline=False)
                 embed.add_field(name="Uptime", value=uptime, inline=False)
                 await ctx.send(embed=embed)
+            finally:
+                client.close()
         except Exception as e:
             self.logger.error(f"RCON error in mcstatus: {str(e)}")
             await ctx.send(f"Failed to connect to server: {str(e)}")
