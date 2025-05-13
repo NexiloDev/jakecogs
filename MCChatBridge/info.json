@@ -1,0 +1,11 @@
+{
+    "author": ["YourName"],
+    "name": "MCChatBridge",
+    "short": "Minecraft-Discord chat bridge",
+    "description": "Integrates Minecraft server chat and events with Discord, supporting shared chat, player join/disconnect, deaths, advancements, and server status.",
+    "install_msg": "MCChatBridge installed! Use [p]mcset to configure channel_id, rcon_host, rcon_port, rcon_password, webhook_port, and secret_token.",
+    "requirements": ["aiohttp", "rconsource"],
+    "version": "1.0.0",
+    "min_bot_version": "3.5.0",
+    "tags": ["minecraft", "discord", "chat", "bridge"]
+}
