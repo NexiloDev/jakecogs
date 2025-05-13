@@ -134,7 +134,8 @@ class MCChatBridge(commands.Cog):
         channel_id = await self.config.guild(guild).discord_channel_id()
         if message.channel.id != channel_id:
             return
-        if message.content.startswith(await self.bot.get_prefix(message)):
+        prefixes = await self.bot.get_prefix(message)
+        if any(message.content.startswith(prefix) for prefix in prefixes):
             return
         try:
             await self.send_to_minecraft(message.content, message.author.name)
