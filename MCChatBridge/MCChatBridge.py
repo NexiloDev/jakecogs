@@ -4,7 +4,7 @@ from redbot.core import commands, Config
 import aiohttp
 from aiohttp import web
 import asyncio
-from aiorcon import RCON  # Updated import
+from m podstawie import MCRcon  # Use mcrcon instead of aiorcon
 import mcstatus
 import json
 import random
@@ -114,12 +114,18 @@ class MCChatBridge(commands.Cog):
 
         self.logger.info(f"Attempting to send to Minecraft: host={host}, port={port}, message=[Discord] {author_name}: {message}")
         try:
-            async with RCON(host, port, password, timeout=5) as client:
-                response = await client.command(f"say [Discord] {author_name}: {message}")
-                self.logger.info(f"Sent to Minecraft: [Discord] {author_name}: {message}, Response: {response}")
-                return response
+            def run_mcrcon():
+                with MCRcon(host, password, port=port, timeout=5) as client:
+                    response = client.command(f"say [Discord] {author_name}: {message}")
+                    return response
+
+            self.logger.debug("Creating RCON client")
+            response = await self.bot.loop.run_in_executor(None, run_mcrcon)
+            self.logger.debug("RCON client connected, sent command")
+            self.logger.info(f"Sent to Minecraft: [Discord] {author_name}: {message}, Response: {response}")
+            return response
         except Exception as e:
-            self.logger.error(f"Failed to send to Minecraft: host={host}, port={port}, error={str(e)}")
+            self.logger.error(f"Failed to send to Minecraft: host={host}, port={port}, error={str(e)}", exc_info=True)
             raise
 
     @commands.Cog.listener()
