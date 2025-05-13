@@ -47,7 +47,11 @@ class MCChatBridge(commands.Cog):
     async def start_webhook_server(self):
         guild = self.bot.guilds[0]
         port = await self.config.guild(guild).webhook_port()
-        self.webhook_task = asyncio.create_task(web.TCPSite(web.AppRunner(self.webhook_app), '0.0.0.0', port).start())
+        runner = web.AppRunner(self.webhook_app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', port)
+        await site.start()
+        self.webhook_task = asyncio.create_task(asyncio.sleep(0))  # Placeholder task
 
     async def handle_webhook(self, request):
         guild = self.bot.guilds[0]
