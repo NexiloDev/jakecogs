@@ -4,8 +4,8 @@ from redbot.core import commands, Config
 import aiohttp
 from aiohttp import web
 import asyncio
-import rcon.source
-from mcstatus import JavaServer
+from aiorcon import RCON  # Updated import
+import mcstatus
 import json
 import random
 import logging
@@ -60,7 +60,7 @@ class MCChatBridge(commands.Cog):
         runner = web.AppRunner(self.webhook_app)
         await runner.setup()
         try:
-            site = web.TCPSite(runner, '0.0.0.0', port)
+            site = web.TCPSite(runner, '127.0.0.1', port)  # Bind to localhost
             await site.start()
             self.logger.info(f"Webhook server started on port {port}")
             self.webhook_task = asyncio.create_task(asyncio.sleep(0))
@@ -73,6 +73,7 @@ class MCChatBridge(commands.Cog):
         guild = self.bot.guilds[0]
         secret_token = await self.config.guild(guild).secret_token()
         if request.headers.get('Authorization') != secret_token:
+            self.logger.info(f"Unauthorized webhook request from {request.remote}")
             return web.Response(status=401, text="Unauthorized")
         
         data = await request.json()
@@ -111,17 +112,14 @@ class MCChatBridge(commands.Cog):
         port = await self.config.guild(guild).rcon_port()
         password = await self.config.guild(guild).rcon_password()
 
+        self.logger.info(f"Attempting to send to Minecraft: host={host}, port={port}, message=[Discord] {author_name}: {message}")
         try:
-            client = rcon.source.Client(host, port, passwd=password)
-            await client.connect()
-            try:
-                response = client.run(f"say [Discord] {author_name}: {message}")
-                self.logger.info(f"Sent to Minecraft: [Discord] {author_name}: {message}")
+            async with RCON(host, port, password, timeout=5) as client:
+                response = await client.command(f"say [Discord] {author_name}: {message}")
+                self.logger.info(f"Sent to Minecraft: [Discord] {author_name}: {message}, Response: {response}")
                 return response
-            finally:
-                client.close()
         except Exception as e:
-            self.logger.error(f"Failed to send to Minecraft: {str(e)}")
+            self.logger.error(f"Failed to send to Minecraft: host={host}, port={port}, error={str(e)}")
             raise
 
     @commands.Cog.listener()
@@ -149,7 +147,7 @@ class MCChatBridge(commands.Cog):
         server_ip = await self.config.guild(guild).server_ip()
 
         try:
-            server = await self.bot.loop.run_in_executor(None, JavaServer.lookup, server_ip)
+            server = await self.bot.loop.run_in_executor(None, mcstatus.JavaServer.lookup, server_ip)
             status = await server.async_status()
             embed = discord.Embed(title="Minecraft Server Status", color=discord.Color.blue())
             embed.add_field(name="Online Players", value=f"{status.players.online}/{status.players.max}", inline=False)
