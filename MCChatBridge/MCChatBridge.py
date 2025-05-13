@@ -5,6 +5,7 @@ import aiohttp
 from aiohttp import web
 import asyncio
 import rcon.source
+from mcstatus import JavaServer
 import json
 import random
 import logging
@@ -19,7 +20,8 @@ class MCChatBridge(commands.Cog):
             "rcon_port": 25575,
             "rcon_password": "",
             "webhook_port": 8080,
-            "secret_token": ""
+            "secret_token": "",
+            "server_ip": "localhost:25565"
         }
         self.config.register_guild(**default_guild)
         self.webhook_app = web.Application()
@@ -36,6 +38,7 @@ class MCChatBridge(commands.Cog):
             "was killed by": "💀"
         }
         self.logger = logging.getLogger("red.MCChatBridge")
+        self.session = aiohttp.ClientSession()
 
     async def cog_load(self):
         try:
@@ -49,6 +52,7 @@ class MCChatBridge(commands.Cog):
             self.webhook_task.cancel()
             await self.webhook_app.shutdown()
             await self.webhook_app.cleanup()
+        await self.session.close()
 
     async def start_webhook_server(self):
         guild = self.bot.guilds[0]
@@ -141,31 +145,19 @@ class MCChatBridge(commands.Cog):
     @commands.command()
     async def mcstatus(self, ctx):
         guild = ctx.guild
-        host = await self.config.guild(guild).rcon_host()
-        port = await self.config.guild(guild).rcon_port()
-        password = await self.config.guild(guild).rcon_password()
+        server_ip = await self.config.guild(guild).server_ip()
 
         try:
-            client = rcon.source.Client(host, port, passwd=password)
-            await client.connect()
-            try:
-                response = client.run("list")
-                players = response.split(": ")[1] if ": " in response else "None"
-                server_info = client.run("version")
-                version = server_info.split(" ")[2] if len(server_info.split(" ")) > 2 else "Unknown"
-                max_players = client.run("get maxplayers")
-                uptime = client.run("uptime")
-
-                embed = discord.Embed(title="Minecraft Server Status", color=discord.Color.blue())
-                embed.add_field(name="Online Players", value=players, inline=False)
-                embed.add_field(name="Server Version", value=version, inline=False)
-                embed.add_field(name="Max Players", value=max_players, inline=False)
-                embed.add_field(name="Uptime", value=uptime, inline=False)
-                await ctx.send(embed=embed)
-            finally:
-                client.close()
+            server = await self.bot.loop.run_in_executor(None, JavaServer.lookup, server_ip)
+            status = await server.async_status()
+            embed = discord.Embed(title="Minecraft Server Status", color=discord.Color.blue())
+            embed.add_field(name="Online Players", value=f"{status.players.online}/{status.players.max}", inline=False)
+            embed.add_field(name="Server Version", value=status.version.name, inline=False)
+            embed.add_field(name="Latency", value=f"{status.latency:.2f} ms", inline=False)
+            embed.add_field(name="MOTD", value=status.description, inline=False)
+            await ctx.send(embed=embed)
         except Exception as e:
-            self.logger.error(f"RCON error in mcstatus: {str(e)}")
+            self.logger.error(f"Failed to get server status: {str(e)}")
             await ctx.send(f"Failed to connect to server: {str(e)}")
 
     @commands.group(name="mcbridge", aliases=["mc"])
@@ -212,6 +204,12 @@ class MCChatBridge(commands.Cog):
         await ctx.send("Secret token set.")
 
     @mcbridge.command()
+    async def setserverip(self, ctx, server_ip: str):
+        """Set the Minecraft server IP and port (e.g., localhost:25565)."""
+        await self.config.guild(ctx.guild).server_ip.set(server_ip)
+        await ctx.send(f"Server IP set to: {server_ip}")
+
+    @mcbridge.command()
     async def showsettings(self, ctx):
         """Show the current settings for the Minecraft chat bridge."""
         channel = self.bot.get_channel(await self.config.guild(ctx.guild).discord_channel_id()) if await self.config.guild(ctx.guild).discord_channel_id() else None
@@ -222,6 +220,7 @@ class MCChatBridge(commands.Cog):
             f"RCON Port: {await self.config.guild(ctx.guild).rcon_port() or 'Not set'}\n"
             f"RCON Password: {'Set' if await self.config.guild(ctx.guild).rcon_password() else 'Not set'}\n"
             f"Webhook Port: {await self.config.guild(ctx.guild).webhook_port() or 'Not set'}\n"
-            f"Secret Token: {'Set' if await self.config.guild(ctx.guild).secret_token() else 'Not set'}"
+            f"Secret Token: {'Set' if await self.config.guild(ctx.guild).secret_token() else 'Not set'}\n"
+            f"Server IP: {await self.config.guild(ctx.guild).server_ip() or 'Not set'}"
         )
         await ctx.send(settings_message)
