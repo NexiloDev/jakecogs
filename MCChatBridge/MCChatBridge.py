@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from redbot.core import commands, Config, checks
+from redbot.core import commands, Config
 import aiohttp
 from aiohttp import web
 import asyncio
@@ -13,7 +13,7 @@ class MCChatBridge(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         default_guild = {
-            "channel_id": None,
+            "discord_channel_id": None,
             "rcon_host": "localhost",
             "rcon_port": 25575,
             "rcon_password": "",
@@ -51,7 +51,7 @@ class MCChatBridge(commands.Cog):
         await runner.setup()
         site = web.TCPSite(runner, '0.0.0.0', port)
         await site.start()
-        self.webhook_task = asyncio.create_task(asyncio.sleep(0))  # Placeholder task
+        self.webhook_task = asyncio.create_task(asyncio.sleep(0))
 
     async def handle_webhook(self, request):
         guild = self.bot.guilds[0]
@@ -62,7 +62,7 @@ class MCChatBridge(commands.Cog):
         data = await request.json()
         event = data.get('event')
         content = data.get('data')
-        channel_id = await self.config.guild(guild).channel_id()
+        channel_id = await self.config.guild(guild).discord_channel_id()
         channel = self.bot.get_channel(channel_id)
         if not channel:
             return web.Response(status=400, text="Channel not found")
@@ -129,38 +129,60 @@ class MCChatBridge(commands.Cog):
         except Exception as e:
             await ctx.send(f"Failed to send message: {str(e)}")
 
-    @checks.admin_or_permissions(manage_guild=True)
-    @commands.group()
-    async def mcset(self, ctx):
+    @commands.group(name="mcbridge", aliases=["mc"])
+    @commands.is_owner()
+    async def mcbridge(self, ctx):
+        """Configure the Minecraft chat bridge (also available as 'mc'). Restricted to bot owner."""
         pass
 
-    @mcset.command()
-    async def channel_id(self, ctx, channel_id: int):
-        await self.config.guild(ctx.guild).channel_id.set(channel_id)
-        await ctx.send(f"Set channel ID to {channel_id}")
+    @mcbridge.command()
+    async def setchannel(self, ctx, channel: discord.TextChannel):
+        """Set the Discord channel for the chat bridge."""
+        await self.config.guild(ctx.guild).discord_channel_id.set(channel.id)
+        await ctx.send(f"Discord channel set to: {channel.name} (ID: {channel.id})")
 
-    @mcset.command()
-    async def rcon_host(self, ctx, host: str):
+    @mcbridge.command()
+    async def setrconhost(self, ctx, host: str):
+        """Set the RCON host (IP or address)."""
         await self.config.guild(ctx.guild).rcon_host.set(host)
-        await ctx.send(f"Set RCON host to {host}")
+        await ctx.send(f"RCON host set to: {host}")
 
-    @mcset.command()
-    async def rcon_port(self, ctx, port: int):
+    @mcbridge.command()
+    async def setrconport(self, ctx, port: int):
+        """Set the RCON port."""
         await self.config.guild(ctx.guild).rcon_port.set(port)
-        await ctx.send(f"Set RCON port to {port}")
+        await ctx.send(f"RCON port set to: {port}")
 
-    @mcset.command()
-    async def rcon_password(self, ctx, password: str):
+    @mcbridge.command()
+    async def setrconpassword(self, ctx, password: str):
+        """Set the RCON password."""
         await self.config.guild(ctx.guild).rcon_password.set(password)
-        await ctx.send("RCON password set")
+        await ctx.send("RCON password set.")
 
-    @mcset.command()
-    async def webhook_port(self, ctx, port: int):
+    @mcbridge.command()
+    async def setwebhookport(self, ctx, port: int):
+        """Set the webhook port."""
         await self.config.guild(ctx.guild).webhook_port.set(port)
-        await ctx.send(f"Set webhook port to {port}")
+        await ctx.send(f"Webhook port set to: {port}")
         await ctx.send("Please restart the bot to apply webhook port changes")
 
-    @mcset.command()
-    async def secret_token(self, ctx, token: str):
+    @mcbridge.command()
+    async def setsecrettoken(self, ctx, token: str):
+        """Set the secret token for webhook authentication."""
         await self.config.guild(ctx.guild).secret_token.set(token)
-        await ctx.send("Secret token set")
+        await ctx.send("Secret token set.")
+
+    @mcbridge.command()
+    async def showsettings(self, ctx):
+        """Show the current settings for the Minecraft chat bridge."""
+        channel = self.bot.get_channel(await self.config.guild(ctx.guild).discord_channel_id()) if await self.config.guild(ctx.guild).discord_channel_id() else None
+        settings_message = (
+            f"**Current Settings:**\n"
+            f"Discord Channel: {channel.name if channel else 'Not set'} (ID: {await self.config.guild(ctx.guild).discord_channel_id() or 'Not set'})\n"
+            f"RCON Host: {await self.config.guild(ctx.guild).rcon_host() or 'Not set'}\n"
+            f"RCON Port: {await self.config.guild(ctx.guild).rcon_port() or 'Not set'}\n"
+            f"RCON Password: {'Set' if await self.config.guild(ctx.guild).rcon_password() else 'Not set'}\n"
+            f"Webhook Port: {await self.config.guild(ctx.guild).webhook_port() or 'Not set'}\n"
+            f"Secret Token: {'Set' if await self.config.guild(ctx.guild).secret_token() else 'Not set'}"
+        )
+        await ctx.send(settings_message)
