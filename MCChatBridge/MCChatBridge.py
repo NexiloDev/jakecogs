@@ -29,6 +29,7 @@ class MCChatBridge(commands.Cog):
         self.webhook_task = None
         self.death_emojis = {
             "fell from a high place": "🪂",
+            "impaled by drowned": "🔱",
             "drowned": "🌊",
             "was slain by": "⚔️",
             "burned to death": "🔥",
@@ -107,7 +108,9 @@ class MCChatBridge(commands.Cog):
             emoji = next((e for k, e in self.death_emojis.items() if k in content.lower()), "💀")
             await channel.send(f"{emoji} **{content}**")
         elif event == "advancement":
-            await channel.send(f"🏆 **{content}**")
+            unwanted_advancements = ["recipe", "edit", "remove", "convert"]
+            if not any(unwanted in content.lower() for unwanted in unwanted_advancements):
+                await channel.send(f"🏆 **{content}**")
         else:
             return web.Response(status=400, text="Unknown event")
 
