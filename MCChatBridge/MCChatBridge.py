@@ -29,7 +29,7 @@ class MCChatBridge(commands.Cog):
         self.webhook_task = None
         self.death_emojis = {
             "fell from a high place": "🪂",
-            "impaled by drowned": "🔱",
+            "by drowned": "🔱",
             "drowned": "🌊",
             "was slain by": "⚔️",
             "burned to death": "🔥",
