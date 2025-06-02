@@ -123,8 +123,8 @@ class MCChatBridge(commands.Cog):
         password = await self.config.guild(guild).rcon_password()
 
         # Calculate prefix and maximum segment length
-        prefix = f"{author_name}: "
-        prefix_length = len(prefix) + len("[Discord] ")  # Account for [Discord] prefix
+        prefix = f"(Discord) {author_name}: "
+        prefix_length = len(prefix)  # Account for (Discord) prefix and space
         max_segment_length = 200  # Safe limit for message content
         max_total_length = 256  # Minecraft's max chat length
         max_content_length = (max_segment_length * 2) - prefix_length  # Max for two segments
@@ -138,7 +138,7 @@ class MCChatBridge(commands.Cog):
         ]
 
         # Check if the message fits in one segment
-        full_message = f"[Discord] {author_name}: {message}"
+        full_message = f"(Discord) {author_name}: {message}"
         if len(full_message) <= max_total_length:
             self.logger.info(f"Attempting to send to Minecraft: host={host}, port={port}, message={full_message}")
             try:
@@ -181,7 +181,7 @@ class MCChatBridge(commands.Cog):
             # Send each segment
             responses = []
             for i, segment in enumerate(segments[:2]):  # Limit to two segments
-                segment_message = f"[Discord] {author_name}: {segment}"
+                segment_message = f"(Discord) {author_name}: {segment}"
                 if len(segment_message) > max_total_length:
                     self.logger.warning(f"Segment {i+1} too long even after splitting: {len(segment_message)} characters")
                     continue
