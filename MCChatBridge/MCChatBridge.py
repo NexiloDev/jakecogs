@@ -124,25 +124,32 @@ class MCChatBridge(commands.Cog):
 
         # Calculate prefix and maximum segment length
         prefix = f"{author_name}: "
-        prefix_length = len(prefix)
+        prefix_length = len(prefix) + len("[Discord] ")  # Account for [Discord] prefix
         max_segment_length = 200  # Safe limit for message content
         max_total_length = 256  # Minecraft's max chat length
-        max_content_length = (max_segment_length * 2) - prefix_length  # Max for two segments, accounting for second prefix
+        max_content_length = (max_segment_length * 2) - prefix_length  # Max for two segments
+
+        # Construct base JSON message components
+        base_json = [
+            {"text": "(discord) ", "color": "blue"},
+            {"text": f"{author_name}: ", "color": "white"}
+        ]
 
         # Check if the message fits in one segment
-        full_message = f"{prefix}{message}"
+        full_message = f"[Discord] {author_name}: {message}"
         if len(full_message) <= max_total_length:
-            self.logger.info(f"Attempting to send to Minecraft: host={host}, port={port}, message=[Discord] {author_name}: {message}")
+            self.logger.info(f"Attempting to send to Minecraft: host={host}, port={port}, message={full_message}")
             try:
                 def run_mcrcon():
                     with MCRcon(host, password, port=port, timeout=5) as client:
-                        response = client.command(f"say {full_message}")
+                        json_message = json.dumps(base_json + [{"text": message, "color": "white"}])
+                        response = client.command(f"tellraw @a {json_message}")
                         return response
 
                 self.logger.debug("Creating RCON client")
                 response = await self.bot.loop.run_in_executor(None, run_mcrcon)
                 self.logger.debug("RCON client connected, sent command")
-                self.logger.info(f"Sent to Minecraft: [Discord] {author_name}: {message}, Response: {response}")
+                self.logger.info(f"Sent to Minecraft: {full_message}, Response: {response}")
                 return response
             except Exception as e:
                 self.logger.error(f"Failed to send to Minecraft: host={host}, port={port}, error={str(e)}", exc_info=True)
@@ -150,7 +157,6 @@ class MCChatBridge(commands.Cog):
         else:
             # Truncate message if it exceeds two segments
             if len(message) > max_content_length:
-                # Reserve 3 chars for ... and ensure second segment fits
                 truncated_length = max_content_length - 3
                 message = message[:truncated_length] + "..."
                 self.logger.info(f"Message truncated from {len(message) + 3} to {len(message)} characters with '...' suffix for author {author_name}")
@@ -173,21 +179,22 @@ class MCChatBridge(commands.Cog):
             # Send each segment
             responses = []
             for i, segment in enumerate(segments[:2]):  # Limit to two segments
-                segment_message = f"{prefix}{segment}"
+                segment_message = f"[Discord] {author_name}: {segment}"
                 if len(segment_message) > max_total_length:
                     self.logger.warning(f"Segment {i+1} too long even after splitting: {len(segment_message)} characters")
                     continue
-                self.logger.info(f"Attempting to send to Minecraft (segment {i+1}/{len(segments)}): host={host}, port={port}, message=[Discord] {author_name}: {segment}")
+                self.logger.info(f"Attempting to send to Minecraft (segment {i+1}/{len(segments)}): host={host}, port={port}, message={segment_message}")
                 try:
                     def run_mcrcon():
                         with MCRcon(host, password, port=port, timeout=5) as client:
-                            response = client.command(f"say {segment_message}")
+                            json_message = json.dumps(base_json + [{"text": segment, "color": "white"}])
+                            response = client.command(f"tellraw @a {json_message}")
                             return response
 
                     self.logger.debug(f"Creating RCON client for segment {i+1}")
                     response = await self.bot.loop.run_in_executor(None, run_mcrcon)
                     self.logger.debug(f"RCON client connected, sent segment {i+1}")
-                    self.logger.info(f"Sent to Minecraft (segment {i+1}/{len(segments)}): [Discord] {author_name}: {segment}, Response: {response}")
+                    self.logger.info(f"Sent to Minecraft (segment {i+1}/{len(segments)}): {segment_message}, Response: {response}")
                     responses.append(response)
                 except Exception as e:
                     self.logger.error(f"Failed to send to Minecraft (segment {i+1}/{len(segments)}): host={host}, port={port}, error={str(e)}", exc_info=True)
