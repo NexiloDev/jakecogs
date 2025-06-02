@@ -131,7 +131,9 @@ class MCChatBridge(commands.Cog):
 
         # Construct base JSON message components
         base_json = [
-            {"text": "(discord) ", "color": "blue"},
+            {"text": "(", "color": "white"},
+            {"text": "Discord", "color": "aqua"},
+            {"text": ") ", "color": "white"},
             {"text": f"{author_name}: ", "color": "white"}
         ]
 
