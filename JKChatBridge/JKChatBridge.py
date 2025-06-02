@@ -284,7 +284,7 @@ class JKChatBridge(commands.Cog):
         if self.url_pattern.search(message_content):
             return
 
-        initial_prefix = f"say ^7(^5Discord^7) ^7{discord_username}^2: "
+        initial_prefix = f"say ^7(^5Discord^7) ^7{discord_username}: ^2"
         continuation_prefix = "say "
         max_length = 115
         chunks = []
