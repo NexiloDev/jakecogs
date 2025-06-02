@@ -273,16 +273,18 @@ class JKChatBridge(commands.Cog):
         if any(message.content.startswith(prefix) for prefix in prefixes):
             return
 
-        discord_username = message.author.display_name.replace("’", "'").replace("“", '"').replace("–", "-").replace("…", "...")
-        message_content = message.content.replace("’", "'").replace("“", '"').replace("–", "-").replace("…", "...")
+        # Use display_name for server nickname or global profile name
+        discord_username = self.clean_for_latin1(message.author.display_name)
+        message_content = self.clean_for_latin1(message.content)
         for member in message.mentions:
-            message_content = message_content.replace(f"<@!{member.id}>", f"@{member.display_name}").replace(f"<@{member.id}>", f"@{member.display_name}")
+            clean_mention = self.clean_for_latin1(member.display_name)
+            message_content = message_content.replace(f"<@!{member.id}>", f"@{clean_mention}").replace(f"<@{member.id}>", f"@{clean_mention}")
         message_content = self.replace_emojis_with_names(message_content)
 
         if self.url_pattern.search(message_content):
             return
 
-        initial_prefix = f"say ^7{discord_username}^2: "
+        initial_prefix = f"say ^7(^5Discord^7) ^7{discord_username}^2: "
         continuation_prefix = "say "
         max_length = 115
         chunks = []
