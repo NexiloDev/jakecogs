@@ -217,7 +217,7 @@ class MCChatBridge(commands.Cog):
         if any(message.content.startswith(prefix) for prefix in prefixes):
             return
         try:
-            await self.send_to_minecraft(message.content, message.author.name)
+            await self.send_to_minecraft(message.content, message.author.display_name)
         except Exception as e:
             self.logger.error(f"Failed to forward Discord message to Minecraft: {str(e)}")
         await self.bot.process_commands(message)
