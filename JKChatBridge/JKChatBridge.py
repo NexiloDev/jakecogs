@@ -35,10 +35,6 @@ class JKChatBridge(commands.Cog):
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
-        self.url_pattern = re.compile(
-            r'(https?://[^\s]+|www\.[^\s]+|\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|io|co|uk|ca|de|fr|au|us|ru|ch|it|nl|se|no|es|mil)(/[^\s]*)?)',
-            re.IGNORECASE
-        )
         self.is_restarting = False
         self.restart_map = None
         self.start_monitoring()
@@ -281,9 +277,6 @@ class JKChatBridge(commands.Cog):
             message_content = message_content.replace(f"<@!{member.id}>", f"@{clean_mention}").replace(f"<@{member.id}>", f"@{clean_mention}")
         message_content = self.replace_emojis_with_names(message_content)
 
-        if self.url_pattern.search(message_content):
-            return
-
         initial_prefix = f"say ^7(^5Discord^7) ^7{discord_username}: ^2"
         continuation_prefix = "say "
         max_length = 115
@@ -419,7 +412,7 @@ class JKChatBridge(commands.Cog):
 
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
-                            if player_name and message and not self.url_pattern.search(message):
+                            if player_name and message:
                                 message = self.replace_text_emotes_with_emojis(message)
                                 await channel.send(f"**{player_name}**: {message}")
 
