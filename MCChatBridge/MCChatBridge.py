@@ -108,7 +108,7 @@ class MCChatBridge(commands.Cog):
             emoji = next((e for k, e in self.death_emojis.items() if k in content.lower()), "💀")
             await channel.send(f"{emoji} **{content}**")
         elif event == "advancement":
-            unwanted_advancements = ["recipe", "edit", "remove", "convert"]
+            unwanted_advancements = ["recipe", "edit", "remove", "convert", "interacted_with_dirt_golem", "sleep_bed"]
             if not any(unwanted in content.lower() for unwanted in unwanted_advancements):
                 await channel.send(f"🏆 **{content}**")
         else:
