@@ -1,0 +1,12 @@
+{
+    "author": ["Jakendary"],
+    "name": "RepoMonitor",
+    "short": "GitHub Repository Monitor",
+    "description": "Monitors up to 5 GitHub repositories for new issues, pull requests, merged PRs, and releases, sending rich embeds to configured Discord channels. Created by Jakendary for Nexilo.org.",
+    "install_msg": "Thanks for installing RepoMonitor! Use [p]load RepoMonitor, then [p]rm tokenset to set your GitHub API token. Configure repositories with [p]rm addrepoN and channels with [p]rm setchannelN (N=1 to 5). Visit Nexilo.org for more info.",
+    "requirements": ["PyGitHub"],
+    "version": "1.0.0",
+    "min_bot_version": "3.5.0",
+    "end_user_data_statement": "This cog stores repository names and channel IDs for configuration, but no personal user data.",
+    "tags": ["github", "discord", "monitoring", "notifications"]
+}
