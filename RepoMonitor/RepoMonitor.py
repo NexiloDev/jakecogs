@@ -64,29 +64,34 @@ class RepoMonitor(commands.Cog):
         self.github_client = await self.initialize_github_client()
         await ctx.send("✅ GitHub API token set successfully.")
 
-    for i in range(1, 6):
-        @repo_monitor.command(name=f"addrepo{i}")
-        async def add_repo(self, ctx: commands.Context, repo_name: str, index=i-1):
-            f"""Add a GitHub repository to monitor in slot {i}.
+    def create_add_repo_command(index):
+        async def add_repo(self, ctx: commands.Context, repo_name: str):
+            """Add a GitHub repository to monitor in slot {0}.
 
-            Example: [p]rm addrepo{i} owner/repo-name
+            Example: [p]rm addrepo{0} owner/repo-name
             You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
-            """
+            """.format(index + 1)
             async with self.config.guild(ctx.guild).repos() as repos:
                 repos[index] = repo_name
-            await ctx.send(f"✅ Repository {repo_name} added to slot {i}.")
+            await ctx.send(f"✅ Repository {repo_name} added to slot {index + 1}.")
+        return add_repo
 
-        @repo_monitor.command(name=f"setchannel{i}")
-        async def set_channel(self, ctx: commands.Context, channel: discord.TextChannel = None, index=i-1):
-            f"""Set the Discord channel for alerts from repository in slot {i}.
+    def create_set_channel_command(index):
+        async def set_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+            """Set the Discord channel for alerts from repository in slot {0}.
 
-            Example: [p]rm setchannel{i} #channel
+            Example: [p]rm setchannel{0} #channel
             If no channel is provided, uses the current channel. Created by Jakendary for Nexilo.org.
-            """
+            """.format(index + 1)
             channel = channel or ctx.channel
             async with self.config.guild(ctx.guild).channels() as channels:
                 channels[index] = channel.id
-            await ctx.send(f"✅ Alerts for repository in slot {i} will be sent to {channel.mention}.")
+            await ctx.send(f"✅ Alerts for repository in slot {index + 1} will be sent to {channel.mention}.")
+        return set_channel
+
+    for i in range(5):
+        locals()[f"addrepo{i+1}"] = repo_monitor.command(name=f"addrepo{i+1}")(create_add_repo_command(i))
+        locals()[f"setchannel{i+1}"] = repo_monitor.command(name=f"setchannel{i+1}")(create_set_channel_command(i))
 
     @tasks.loop(minutes=5.0)
     async def monitor_task(self):
@@ -115,6 +120,7 @@ class RepoMonitor(commands.Cog):
                         await self.check_releases(repo, guild, channel, conf, i)
                     except github.GithubException as e:
                         logging.error(f"Error accessing repo {repo_name}: {e}")
+                        await channel.send(f"⚠️ Error accessing repository {repo_name}: {e.data.get('message', 'Unknown error')}. Please verify the repository name or token.")
 
     async def check_issues(self, repo, guild, channel, conf, index):
         """Check for new issues in the repository."""
