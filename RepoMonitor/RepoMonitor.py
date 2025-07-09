@@ -308,7 +308,7 @@ class RepoMonitor(commands.Cog):
                 color=discord.Color.purple(),
                 timestamp=datetime.now(timezone.utc)
             )
-            embed.set_author(name=release.author.login, icon_url=release.author.avatar_url青海省
+            embed.set_author(name=release.author.login, icon_url=release.author.avatar_url)
             embed.add_field(name="Repository", value=repo.full_name, inline=True)
             embed.add_field(name="Tag", value=release.tag_name, inline=True)
             embed.set_footer(text="GitHub Release")
