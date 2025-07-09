@@ -235,7 +235,7 @@ class RepoMonitor(commands.Cog):
                 break
             if not issue.pull_request:  # Ensure it's an issue, not a PR
                 embed = discord.Embed(
-                    title=f"🆕 New Issue: {issue.title}",
+                    title=f"⚠️ New Issue: {issue.title}",
                     url=issue.html_url,
                     description=issue.body[:500] + "..." if issue.body and len(issue.body) > 500 else issue.body or "No description provided.",
                     color=discord.Color.red(),
@@ -244,7 +244,7 @@ class RepoMonitor(commands.Cog):
                 embed.set_author(name=issue.user.login, icon_url=issue.user.avatar_url)
                 embed.add_field(name="Repository", value=repo.full_name, inline=True)
                 embed.add_field(name="Issue Number", value=f"#{issue.number}", inline=True)
-                embed.set_footer(text="GitHub Issue")
+                embed.set_footer(text="RepoMonitor by Jakendary (Nexilo.org)")
                 await channel.send(embed=embed)
                 last_time = max(last_time, issue.created_at)
 
@@ -270,7 +270,7 @@ class RepoMonitor(commands.Cog):
                 embed.set_author(name=pr.user.login, icon_url=pr.user.avatar_url)
                 embed.add_field(name="Repository", value=repo.full_name, inline=True)
                 embed.add_field(name="PR Number", value=f"#{pr.number}", inline=True)
-                embed.set_footer(text="GitHub Pull Request")
+                embed.set_footer(text="RepoMonitor by Jakendary (Nexilo.org)")
                 await channel.send(embed=embed)
                 last_pr_time_dt = max(last_pr_time_dt, pr.created_at)
             if pr.merged_at and pr.merged_at > last_merged_pr_time_dt:
@@ -284,7 +284,7 @@ class RepoMonitor(commands.Cog):
                 embed.set_author(name=pr.merged_by.login if pr.merged_by else "Unknown", icon_url=pr.merged_by.avatar_url if pr.merged_by else "")
                 embed.add_field(name="Repository", value=repo.full_name, inline=True)
                 embed.add_field(name="PR Number", value=f"#{pr.number}", inline=True)
-                embed.set_footer(text="GitHub Pull Request Merged")
+                embed.set_footer(text="RepoMonitor by Jakendary (Nexilo.org)")
                 await channel.send(embed=embed)
                 last_merged_pr_time_dt = max(last_merged_pr_time_dt, pr.merged_at)
 
@@ -311,7 +311,7 @@ class RepoMonitor(commands.Cog):
             embed.set_author(name=release.author.login, icon_url=release.author.avatar_url)
             embed.add_field(name="Repository", value=repo.full_name, inline=True)
             embed.add_field(name="Tag", value=release.tag_name, inline=True)
-            embed.set_footer(text="GitHub Release")
+            embed.set_footer(text="RepoMonitor by Jakendary (Nexilo.org)")
             await channel.send(embed=embed)
             last_time = max(last_time, release.created_at)
 
