@@ -64,34 +64,120 @@ class RepoMonitor(commands.Cog):
         self.github_client = await self.initialize_github_client()
         await ctx.send("✅ GitHub API token set successfully.")
 
-    def create_add_repo_command(index):
-        async def add_repo(self, ctx: commands.Context, repo_name: str):
-            """Add a GitHub repository to monitor in slot {0}.
+    @repo_monitor.command(name="addrepo1")
+    async def add_repo1(self, ctx: commands.Context, repo_name: str):
+        """Add a GitHub repository to monitor in slot 1.
 
-            Example: [p]rm addrepo{0} owner/repo-name
-            You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
-            """.format(index + 1)
-            async with self.config.guild(ctx.guild).repos() as repos:
-                repos[index] = repo_name
-            await ctx.send(f"✅ Repository {repo_name} added to slot {index + 1}.")
-        return add_repo
+        Example: [p]rm addrepo1 owner/repo-name
+        You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
+        """
+        async with self.config.guild(ctx.guild).repos() as repos:
+            repos[0] = repo_name
+        await ctx.send(f"✅ Repository {repo_name} added to slot 1.")
 
-    def create_set_channel_command(index):
-        async def set_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
-            """Set the Discord channel for alerts from repository in slot {0}.
+    @repo_monitor.command(name="addrepo2")
+    async def add_repo2(self, ctx: commands.Context, repo_name: str):
+        """Add a GitHub repository to monitor in slot 2.
 
-            Example: [p]rm setchannel{0} #channel
-            If no channel is provided, uses the current channel. Created by Jakendary for Nexilo.org.
-            """.format(index + 1)
-            channel = channel or ctx.channel
-            async with self.config.guild(ctx.guild).channels() as channels:
-                channels[index] = channel.id
-            await ctx.send(f"✅ Alerts for repository in slot {index + 1} will be sent to {channel.mention}.")
-        return set_channel
+        Example: [p]rm addrepo2 owner/repo-name
+        You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
+        """
+        async with self.config.guild(ctx.guild).repos() as repos:
+            repos[1] = repo_name
+        await ctx.send(f"✅ Repository {repo_name} added to slot 2.")
 
-    for i in range(5):
-        locals()[f"addrepo{i+1}"] = repo_monitor.command(name=f"addrepo{i+1}")(create_add_repo_command(i))
-        locals()[f"setchannel{i+1}"] = repo_monitor.command(name=f"setchannel{i+1}")(create_set_channel_command(i))
+    @repo_monitor.command(name="addrepo3")
+    async def add_repo3(self, ctx: commands.Context, repo_name: str):
+        """Add a GitHub repository to monitor in slot 3.
+
+        Example: [p]rm addrepo3 owner/repo-name
+        You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
+        """
+        async with self.config.guild(ctx.guild).repos() as repos:
+            repos[2] = repo_name
+        await ctx.send(f"✅ Repository {repo_name} added to slot 3.")
+
+    @repo_monitor.command(name="addrepo4")
+    async def add_repo4(self, ctx: commands.Context, repo_name: str):
+        """Add a GitHub repository to monitor in slot 4.
+
+        Example: [p]rm addrepo4 owner/repo-name
+        You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
+        """
+        async with self.config.guild(ctx.guild).repos() as repos:
+            repos[3] = repo_name
+        await ctx.send(f"✅ Repository {repo_name} added to slot 4.")
+
+    @repo_monitor.command(name="addrepo5")
+    async def add_repo5(self, ctx: commands.Context, repo_name: str):
+        """Add a GitHub repository to monitor in slot 5.
+
+        Example: [p]rm addrepo5 owner/repo-name
+        Youcan monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
+        """
+        async with self.config.guild(ctx.guild).repos() as repos:
+            repos[4] = repo_name
+        await ctx.send(f"✅ Repository {repo_name} added to slot 5.")
+
+    @repo_monitor.command(name="setchannel1")
+    async def set_channel1(self, ctx: commands.Context, channel: discord.TextChannel = None):
+        """Set the Discord channel for alerts from repository in slot 1.
+
+        Example: [p]rm setchannel1 #channel
+        If no channel is provided, uses the current channel. Created by Jakendary for Nexilo.org.
+        """
+        channel = channel or ctx.channel
+        async with self.config.guild(ctx.guild).channels() as channels:
+            channels[0] = channel.id
+        await ctx.send(f"✅ Alerts for repository in slot 1 will be sent to {channel.mention}.")
+
+    @repo_monitor.command(name="setchannel2")
+    async def set_channel2(self, ctx: commands.Context, channel: discord.TextChannel = None):
+        """Set the Discord channel for alerts from repository in slot 2.
+
+        Example: [p]rm setchannel2 #channel
+        If no channel is provided, uses the current channel. Created by Jakendary for Nexilo.org.
+        """
+        channel = channel or ctx.channel
+        async with self.config.guild(ctx.guild).channels() as channels:
+            channels[1] = channel.id
+        await ctx.send(f"✅ Alerts for repository in slot 2 will be sent to {channel.mention}.")
+
+    @repo_monitor.command(name="setchannel3")
+    async def set_channel3(self, ctx: commands.Context, channel: discord.TextChannel = None):
+        """Set the Discord channel for alerts from repository in slot 3.
+
+        Example: [p]rm setchannel3 #channel
+        If no channel is provided, uses the current channel. Created by Jakendary for Nexilo.org.
+        """
+        channel = channel or ctx.channel
+        async with self.config.guild(ctx.guild).channels() as channels:
+            channels[2] = channel.id
+        await ctx.send(f"✅ Alerts for repository in slot 3 will be sent to {channel.mention}.")
+
+    @repo_monitor.command(name="setchannel4")
+    async def set_channel4(self, ctx: commands.Context, channel: discord.TextChannel = None):
+        """Set the Discord channel for alerts from repository in slot 4.
+
+        Example: [p]rm setchannel4 #channel
+        If no channel is provided, uses the current channel. Created by Jakendary for Nexilo.org.
+        """
+        channel = channel or ctx.channel
+        async with self.config.guild(ctx.guild).channels() as channels:
+            channels[3] = channel.id
+        await ctx.send(f"✅ Alerts for repository in slot 4 will be sent to {channel.mention}.")
+
+    @repo_monitor.command(name="setchannel5")
+    async def set_channel5(self, ctx: commands.Context, channel: discord.TextChannel = None):
+        """Set the Discord channel for alerts from repository in slot 5.
+
+        Example: [p]rm setchannel5 #channel
+        If no channel is provided, uses the current channel. Created by Jakendola.org.
+        """
+        channel = channel or ctx.channel
+        async with self.config.guild(ctx.guild).channels() as channels:
+            channels[4] = channel.id
+        await ctx.send(f"✅ Alerts for repository in slot 5 will be sent to {channel.mention}.")
 
     @tasks.loop(minutes=5.0)
     async def monitor_task(self):
