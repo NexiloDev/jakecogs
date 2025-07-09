@@ -3,9 +3,10 @@ from discord.ext import tasks
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 import github
-from github import Github
+from github import Github, Auth
 from datetime import datetime, timezone
 import logging
+import re
 
 class RepoMonitor(commands.Cog):
     """A cog to monitor up to 5 GitHub repositories for new issues, PRs, merged PRs, and releases.
@@ -38,7 +39,15 @@ class RepoMonitor(commands.Cog):
         if not token.get("token"):
             logging.error("GitHub API token not set. Use '[p]rm tokenset <your-token>'.")
             return None
-        return Github(token["token"])
+        return Github(auth=Auth.Token(token["token"]))
+
+    def parse_repo_name(self, input_str: str) -> str:
+        """Parse a repository name or URL into owner/repo-name format."""
+        url_pattern = r"https?://github\.com/([^/]+)/([^/]+)"
+        match = re.match(url_pattern, input_str)
+        if match:
+            return f"{match.group(1)}/{match.group(2)}"
+        return input_str
 
     @commands.group(name="repomonitor", aliases=["rm"])
     @commands.guild_only()
@@ -62,15 +71,19 @@ class RepoMonitor(commands.Cog):
         """
         await self.bot.set_shared_api_tokens("github.com", token=token)
         self.github_client = await self.initialize_github_client()
-        await ctx.send("✅ GitHub API token set successfully.")
+        if self.github_client:
+            await ctx.send("✅ GitHub API token set successfully.")
+        else:
+            await ctx.send("❌ Failed to set GitHub API token. Please check the token and try again.")
 
     @repo_monitor.command(name="addrepo1")
     async def add_repo1(self, ctx: commands.Context, repo_name: str):
         """Add a GitHub repository to monitor in slot 1.
 
-        Example: [p]rm addrepo1 owner/repo-name
+        Example: [p]rm addrepo1 owner/repo-name or [p]rm addrepo1 https://github.com/owner/repo-name
         You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
         """
+        repo_name = self.parse_repo_name(repo_name)
         async with self.config.guild(ctx.guild).repos() as repos:
             repos[0] = repo_name
         await ctx.send(f"✅ Repository {repo_name} added to slot 1.")
@@ -79,9 +92,10 @@ class RepoMonitor(commands.Cog):
     async def add_repo2(self, ctx: commands.Context, repo_name: str):
         """Add a GitHub repository to monitor in slot 2.
 
-        Example: [p]rm addrepo2 owner/repo-name
+        Example: [p]rm addrepo2 owner/repo-name or [p]rm addrepo2 https://github.com/owner/repo-name
         You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
         """
+        repo_name = self.parse_repo_name(repo_name)
         async with self.config.guild(ctx.guild).repos() as repos:
             repos[1] = repo_name
         await ctx.send(f"✅ Repository {repo_name} added to slot 2.")
@@ -90,9 +104,10 @@ class RepoMonitor(commands.Cog):
     async def add_repo3(self, ctx: commands.Context, repo_name: str):
         """Add a GitHub repository to monitor in slot 3.
 
-        Example: [p]rm addrepo3 owner/repo-name
+        Example: [p]rm addrepo3 owner/repo-name or [p]rm addrepo3 https://github.com/owner/repo-name
         You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
         """
+        repo_name = self.parse_repo_name(repo_name)
         async with self.config.guild(ctx.guild).repos() as repos:
             repos[2] = repo_name
         await ctx.send(f"✅ Repository {repo_name} added to slot 3.")
@@ -101,9 +116,10 @@ class RepoMonitor(commands.Cog):
     async def add_repo4(self, ctx: commands.Context, repo_name: str):
         """Add a GitHub repository to monitor in slot 4.
 
-        Example: [p]rm addrepo4 owner/repo-name
+        Example: [p]rm addrepo4 owner/repo-name or [p]rm addrepo4 https://github.com/owner/repo-name
         You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
         """
+        repo_name = self.parse_repo_name(repo_name)
         async with self.config.guild(ctx.guild).repos() as repos:
             repos[3] = repo_name
         await ctx.send(f"✅ Repository {repo_name} added to slot 4.")
@@ -112,9 +128,10 @@ class RepoMonitor(commands.Cog):
     async def add_repo5(self, ctx: commands.Context, repo_name: str):
         """Add a GitHub repository to monitor in slot 5.
 
-        Example: [p]rm addrepo5 owner/repo-name
-        Youcan monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
+        Example: [p]rm addrepo5 owner/repo-name or [p]rm addrepo5 https://github.com/owner/repo-name
+        You can monitor up to 5 repositories. Created by Jakendary for Nexilo.org.
         """
+        repo_name = self.parse_repo_name(repo_name)
         async with self.config.guild(ctx.guild).repos() as repos:
             repos[4] = repo_name
         await ctx.send(f"✅ Repository {repo_name} added to slot 5.")
@@ -172,7 +189,7 @@ class RepoMonitor(commands.Cog):
         """Set the Discord channel for alerts from repository in slot 5.
 
         Example: [p]rm setchannel5 #channel
-        If no channel is provided, uses the current channel. Created by Jakendola.org.
+        If no channel is provided, uses the current channel. Created by Jakendary for Nexilo.org.
         """
         channel = channel or ctx.channel
         async with self.config.guild(ctx.guild).channels() as channels:
@@ -227,7 +244,7 @@ class RepoMonitor(commands.Cog):
                 embed.set_author(name=issue.user.login, icon_url=issue.user.avatar_url)
                 embed.add_field(name="Repository", value=repo.full_name, inline=True)
                 embed.add_field(name="Issue Number", value=f"#{issue.number}", inline=True)
-                embed.set_footer(text="GitHub Issue | Created by Jakendary for Nexilo.org")
+                embed.set_footer(text="GitHub Issue")
                 await channel.send(embed=embed)
                 last_time = max(last_time, issue.created_at)
 
@@ -253,7 +270,7 @@ class RepoMonitor(commands.Cog):
                 embed.set_author(name=pr.user.login, icon_url=pr.user.avatar_url)
                 embed.add_field(name="Repository", value=repo.full_name, inline=True)
                 embed.add_field(name="PR Number", value=f"#{pr.number}", inline=True)
-                embed.set_footer(text="GitHub Pull Request | Created by Jakendary for Nexilo.org")
+                embed.set_footer(text="GitHub Pull Request")
                 await channel.send(embed=embed)
                 last_pr_time_dt = max(last_pr_time_dt, pr.created_at)
             if pr.merged_at and pr.merged_at > last_merged_pr_time_dt:
@@ -267,7 +284,7 @@ class RepoMonitor(commands.Cog):
                 embed.set_author(name=pr.merged_by.login if pr.merged_by else "Unknown", icon_url=pr.merged_by.avatar_url if pr.merged_by else "")
                 embed.add_field(name="Repository", value=repo.full_name, inline=True)
                 embed.add_field(name="PR Number", value=f"#{pr.number}", inline=True)
-                embed.set_footer(text="GitHub Pull Request Merged | Created by Jakendary for Nexilo.org")
+                embed.set_footer(text="GitHub Pull Request Merged")
                 await channel.send(embed=embed)
                 last_merged_pr_time_dt = max(last_merged_pr_time_dt, pr.merged_at)
 
@@ -291,10 +308,10 @@ class RepoMonitor(commands.Cog):
                 color=discord.Color.purple(),
                 timestamp=datetime.now(timezone.utc)
             )
-            embed.set_author(name=release.author.login, icon_url=release.author.avatar_url)
+            embed.set_author(name=release.author.login, icon_url=release.author.avatar_url青海省
             embed.add_field(name="Repository", value=repo.full_name, inline=True)
             embed.add_field(name="Tag", value=release.tag_name, inline=True)
-            embed.set_footer(text="GitHub Release | Created by Jakendary for Nexilo.org")
+            embed.set_footer(text="GitHub Release")
             await channel.send(embed=embed)
             last_time = max(last_time, release.created_at)
 
