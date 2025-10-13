@@ -9,7 +9,7 @@ import logging
 import re
 
 class RepoMonitor(commands.Cog):
-    """A cog to monitor up to 5 GitHub repositories for new issues, PRs, merged PRs, and releases.
+    """A cog to monitor up to 5 GitHub repositories for new issues, PRs, merged PRs, releases, and comments.
 
     Created by Jakendary for the Nexilo.org community.
     Use `[p]rm tokenset` to set your GitHub API token, then `[p]rm addrepoN` and `[p]rm setchannelN` (N=1 to 5) to configure repositories and channels.
@@ -24,7 +24,8 @@ class RepoMonitor(commands.Cog):
             "last_issue_times": [None] * 5,
             "last_pr_times": [None] * 5,
             "last_merged_pr_times": [None] * 5,
-            "last_release_times": [None] * 5
+            "last_release_times": [None] * 5,
+            "last_comment_times": [None] * 5
         }
         self.config.register_guild(**default_guild)
         self.github_client = None
@@ -221,6 +222,7 @@ class RepoMonitor(commands.Cog):
                         await self.check_issues(repo, guild, channel, conf, i)
                         await self.check_prs(repo, guild, channel, conf, i)
                         await self.check_releases(repo, guild, channel, conf, i)
+                        await self.check_comments(repo, guild, channel, conf, i)
                     except github.GithubException as e:
                         logging.error(f"Error accessing repo {repo_name}: {e}")
                         await channel.send(f"⚠️ Error accessing repository {repo_name}: {e.data.get('message', 'Unknown error')}. Please verify the repository name or token.")
@@ -317,6 +319,55 @@ class RepoMonitor(commands.Cog):
 
         if last_time != datetime.min.replace(tzinfo=timezone.utc):
             conf["last_release_times"][index] = last_time.isoformat()
+
+    async def check_comments(self, repo, guild, channel, conf, index):
+        """Check for new comments on issues and pull requests in the repository."""
+        last_comment_time = conf["last_comment_times"][index]
+        last_time = datetime.fromisoformat(last_comment_time.replace("Z", "+00:00")) if last_comment_time else datetime.min.replace(tzinfo=timezone.utc)
+
+        # Check comments on issues (excluding PRs)
+        for issue in repo.get_issues(state="all", sort="updated", direction="desc"):
+            if issue.updated_at <= last_time:
+                break
+            for comment in issue.get_comments():
+                if comment.created_at > last_time:
+                    if not issue.pull_request:  # Ensure it's an issue, not a PR
+                        embed = discord.Embed(
+                            title=f"💬 New Comment on Issue: {issue.title}",
+                            url=comment.html_url,
+                            description=f"{comment.user.login} has left a new comment.",
+                            color=discord.Color.orange(),
+                            timestamp=datetime.now(timezone.utc)
+                        )
+                        embed.set_author(name=comment.user.login, icon_url=comment.user.avatar_url)
+                        embed.add_field(name="Repository", value=repo.full_name, inline=True)
+                        embed.add_field(name="Issue Number", value=f"#{issue.number}", inline=True)
+                        embed.set_footer(text="RepoMonitor by Jakendary (Nexilo.org)")
+                        await channel.send(embed=embed)
+                    last_time = max(last_time, comment.created_at)
+
+        # Check comments on pull requests
+        for pr in repo.get_pulls(state="all", sort="updated", direction="desc"):
+            if pr.updated_at <= last_time:
+                break
+            for comment in pr.get_issue_comments():  # Issue comments on PRs
+                if comment.created_at > last_time:
+                    embed = discord.Embed(
+                        title=f"💬 New Comment on Pull Request: {pr.title}",
+                        url=comment.html_url,
+                        description=f"{comment.user.login} has left a new comment.",
+                        color=discord.Color.orange(),
+                        timestamp=datetime.now(timezone.utc)
+                    )
+                    embed.set_author(name=comment.user.login, icon_url=comment.user.avatar_url)
+                    embed.add_field(name="Repository", value=repo.full_name, inline=True)
+                    embed.add_field(name="PR Number", value=f"#{pr.number}", inline=True)
+                    embed.set_footer(text="RepoMonitor by Jakendary (Nexilo.org)")
+                    await channel.send(embed=embed)
+                    last_time = max(last_time, comment.created_at)
+
+        if last_time != datetime.min.replace(tzinfo=timezone.utc):
+            conf["last_comment_times"][index] = last_time.isoformat()
 
     @monitor_task.before_loop
     async def before_monitor(self):
