@@ -324,6 +324,7 @@ class RepoMonitor(commands.Cog):
         """Check for new comments on issues and pull requests in the repository."""
         last_comment_time = conf["last_comment_times"][index]
         last_time = datetime.fromisoformat(last_comment_time.replace("Z", "+00:00")) if last_comment_time else datetime.min.replace(tzinfo=timezone.utc)
+        latest_comment_time = last_time
 
         # Check comments on issues (excluding PRs)
         for issue in repo.get_issues(state="all", sort="updated", direction="desc"):
@@ -335,7 +336,6 @@ class RepoMonitor(commands.Cog):
                         embed = discord.Embed(
                             title=f"💬 New Comment on Issue: {issue.title}",
                             url=comment.html_url,
-                            description=f"{comment.user.login} has left a new comment.",
                             color=discord.Color.orange(),
                             timestamp=datetime.now(timezone.utc)
                         )
@@ -344,7 +344,7 @@ class RepoMonitor(commands.Cog):
                         embed.add_field(name="Issue Number", value=f"#{issue.number}", inline=True)
                         embed.set_footer(text="RepoMonitor by Jakendary (Nexilo.org)")
                         await channel.send(embed=embed)
-                    last_time = max(last_time, comment.created_at)
+                        latest_comment_time = max(latest_comment_time, comment.created_at)
 
         # Check comments on pull requests
         for pr in repo.get_pulls(state="all", sort="updated", direction="desc"):
@@ -355,7 +355,6 @@ class RepoMonitor(commands.Cog):
                     embed = discord.Embed(
                         title=f"💬 New Comment on Pull Request: {pr.title}",
                         url=comment.html_url,
-                        description=f"{comment.user.login} has left a new comment.",
                         color=discord.Color.orange(),
                         timestamp=datetime.now(timezone.utc)
                     )
@@ -364,10 +363,10 @@ class RepoMonitor(commands.Cog):
                     embed.add_field(name="PR Number", value=f"#{pr.number}", inline=True)
                     embed.set_footer(text="RepoMonitor by Jakendary (Nexilo.org)")
                     await channel.send(embed=embed)
-                    last_time = max(last_time, comment.created_at)
+                    latest_comment_time = max(latest_comment_time, comment.created_at)
 
-        if last_time != datetime.min.replace(tzinfo=timezone.utc):
-            conf["last_comment_times"][index] = last_time.isoformat()
+        if latest_comment_time != datetime.min.replace(tzinfo=timezone.utc):
+            conf["last_comment_times"][index] = latest_comment_time.isoformat()
 
     @monitor_task.before_loop
     async def before_monitor(self):
