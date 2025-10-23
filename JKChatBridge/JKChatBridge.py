@@ -324,7 +324,7 @@ class JKChatBridge(commands.Cog):
             "😮": ":o", "😁": "=D", "😆": "xD", "😳": "O.o", "🤓": "B)", "😴": "-_-", "😅": "^^;", "😒": ":/",
             "😘": ":*", "😎": "8)", "😱": "D:", "🤔": ":?", "🥳": "\\o/", "🤗": ">^.^<", "🤪": ":p",
             "🙏": ":pray:", "👋": ":wave:", "😃": ":D", "😓": ":S", "😤": ">:(", "😋": ":P", "😶": ":-|",
-            "🥰": "<3", "🤩": "*.*", "😬": ":/", "😇": "O:)"
+            "🥰": "<3", "🤩": "*.*", "😬": ":/", "😇": "O:)", "🎃": ":jack_o_lantern:", "🎄": ":christmas_tree:"
         }
         return ''.join(emoji_map.get(c, c) for c in text)
 
@@ -380,7 +380,8 @@ class JKChatBridge(commands.Cog):
             ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣",
             ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
             ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
-            ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇"
+            ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
+            ":jackolantern:": ":jack_o_lantern:", ":christmastree:": ":christmas_tree:"
         }
         for text_emote, emoji in text_emote_map.items():
             text = text.replace(text_emote, emoji)
@@ -435,7 +436,7 @@ class JKChatBridge(commands.Cog):
                                     if not bot_name:
                                         logger.warning("Bot name not set, skipping duel message")
                                         continue
-                                    duel_message = f"sayasbot {bot_name} {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5! :trophy:"
+                                    duel_message = f"sayasbot {bot_name} {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5! :crown:"
                                     try:
                                         await self.bot.loop.run_in_executor(
                                             self.executor, 
