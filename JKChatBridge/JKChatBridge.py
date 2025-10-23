@@ -30,7 +30,8 @@ class JKChatBridge(commands.Cog):
             rcon_password=None,
             custom_emoji=None,
             join_disconnect_enabled=True,
-            tracker_url=None
+            tracker_url=None,
+            bot_name=None
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
@@ -105,6 +106,12 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Tracker URL set to: {url}")
 
     @jkbridge.command()
+    async def setbotname(self, ctx: commands.Context, name: str) -> None:
+        """Set the bot name for sayasbot commands."""
+        await self.config.bot_name.set(name)
+        await ctx.send(f"Bot name set to: {name}")
+
+    @jkbridge.command()
     async def showsettings(self, ctx: commands.Context) -> None:
         """Show the current settings for the JK chat bridge."""
         channel = self.bot.get_channel(await self.config.discord_channel_id()) if await self.config.discord_channel_id() else None
@@ -116,7 +123,8 @@ class JKChatBridge(commands.Cog):
             f"RCON Port: {await self.config.rcon_port() or 'Not set'}\n"
             f"RCON Password: {'Set' if await self.config.rcon_password() else 'Not set'}\n"
             f"Custom Emoji: {await self.config.custom_emoji() or 'Not set'}\n"
-            f"Tracker URL: {await self.config.tracker_url() or 'Not set'}"
+            f"Tracker URL: {await self.config.tracker_url() or 'Not set'}\n"
+            f"Bot Name: {await self.config.bot_name() or 'Not set'}"
         )
         await ctx.send(settings_message)
 
@@ -421,11 +429,12 @@ class JKChatBridge(commands.Cog):
                             if len(parts) == 2:
                                 winner_with_colors = parts[0].strip()
                                 loser_with_colors = parts[1].strip()
-                                winner = self.remove_color_codes(winner_with_colors)
-                                loser = self.remove_color_codes(loser_with_colors)
-                                await channel.send(f"<a:peepoBeatSaber:1228624251800522804> **{winner}** won a duel against **{loser}**!")
                                 if await self.validate_rcon_settings():
-                                    duel_message = f"say ^5Nexi^7: {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5!"
+                                    bot_name = await self.config.bot_name()
+                                    if not bot_name:
+                                        logger.warning("Bot name not set, skipping duel message")
+                                        continue
+                                    duel_message = f"sayasbot {bot_name} {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5! :trophy:"
                                     try:
                                         await self.bot.loop.run_in_executor(
                                             self.executor, 
