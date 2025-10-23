@@ -434,7 +434,7 @@ class JKChatBridge(commands.Cog):
                                     if not bot_name:
                                         logger.warning("Bot name not set, skipping duel message")
                                         continue
-                                    duel_message = f"sayasbot {bot_name} {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5! :trophy:"
+                                    duel_message = f"sayasbot {bot_name} {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5! :crown:"
                                     try:
                                         await self.bot.loop.run_in_executor(
                                             self.executor, 
