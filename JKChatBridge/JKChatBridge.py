@@ -435,7 +435,7 @@ class JKChatBridge(commands.Cog):
                                     if not bot_name:
                                         logger.warning("Bot name not set, skipping duel message")
                                         continue
-                                    duel_message = f"sayasbot {bot_name} ^5{winner_with_colors} ^7has defeated ^5{loser_with_colors} ^7in a duel^5! :trophy:"
+                                    duel_message = f"sayasbot {bot_name} {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5! :trophy:"
                                     try:
                                         await self.bot.loop.run_in_executor(
                                             self.executor, 
@@ -477,7 +477,7 @@ class JKChatBridge(commands.Cog):
                                         current_time = time.time()
                                         if current_time - self.last_welcome_time >= 5:  # 5-second cooldown
                                             self.last_welcome_time = current_time
-                                            welcome_message = f"sayasbot {bot_name} Hey {join_name}, welcome to the server^5! :wave:"
+                                            welcome_message = f"sayasbot {bot_name} ^7Hey {join_name}^7, welcome to the server^5! :jackolantern:"
                                             self.bot.loop.create_task(self.send_welcome_message(welcome_message))
                                         else:
                                             logger.debug(f"Skipped welcome message for {join_name_clean} due to cooldown")
