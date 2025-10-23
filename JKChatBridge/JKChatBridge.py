@@ -40,10 +40,19 @@ class JKChatBridge(commands.Cog):
         self.restart_map = None
         self.last_welcome_time = 0  # Track time of last welcome message
         self.start_monitoring()
+        # Start auto-reload task
+        self.bot.loop.create_task(self.auto_reload_monitor())
 
     async def cog_load(self) -> None:
         """Called when the cog is loaded."""
         logger.debug("Cog loaded.")
+
+    async def auto_reload_monitor(self):
+        """Run silent reload_monitor every 5 minutes."""
+        while True:
+            await asyncio.sleep(300)  # 5 minutes
+            await self.reload_monitor(silent=True)
+            logger.debug("Auto-reload triggered")
 
     async def validate_rcon_settings(self) -> bool:
         """Check if RCON settings are fully configured for chat and player commands."""
@@ -592,7 +601,7 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Join and disconnect messages are now **{state_text}**.")
 
     @commands.command(name="jkreload", aliases=["jkreloadmonitor"])
-    async def reload_monitor(self, ctx):
+    async def reload_monitor(self, ctx=None, silent=False):
         """Reload the log monitoring task to refresh the bot's connection."""
         if self.monitor_task and not self.monitor_task.done():
             self.monitoring = False
@@ -600,15 +609,16 @@ class JKChatBridge(commands.Cog):
             try:
                 await self.monitor_task
             except asyncio.CancelledError:
-                print("Monitoring task canceled successfully.")
+                logger.debug("Monitoring task canceled successfully.")
             except Exception as e:
-                print(f"Error canceling task: {e}")
+                logger.error(f"Error canceling task: {e}")
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
         self.is_restarting = False
         self.restart_map = None
         self.start_monitoring()
-        await ctx.send("✅ **Log monitoring task reloaded.**")
+        if not silent and ctx:
+            await ctx.send("✅ **Log monitoring task reloaded.**")
 
 async def setup(bot):
     """Set up the JKChatBridge cog when the bot loads."""
