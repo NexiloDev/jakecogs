@@ -38,6 +38,7 @@ class JKChatBridge(commands.Cog):
         self.monitor_task = None
         self.is_restarting = False
         self.restart_map = None
+        self.last_welcome_time = 0  # Track time of last welcome message
         self.start_monitoring()
 
     async def cog_load(self) -> None:
@@ -434,7 +435,7 @@ class JKChatBridge(commands.Cog):
                                     if not bot_name:
                                         logger.warning("Bot name not set, skipping duel message")
                                         continue
-                                    duel_message = f"sayasbot {bot_name} {winner_with_colors} ^7has defeated {loser_with_colors} ^7in a duel^5! :crown:"
+                                    duel_message = f"sayasbot {bot_name} ^5{winner_with_colors} ^7has defeated ^5{loser_with_colors} ^7in a duel^5! :trophy:"
                                     try:
                                         await self.bot.loop.run_in_executor(
                                             self.executor, 
@@ -464,12 +465,22 @@ class JKChatBridge(commands.Cog):
                             self.is_restarting = False
                             self.restart_map = None
 
-                        elif "Going from CS_CONNECTED to CS_PRIMED for" in line:
-                            join_name = line.split("Going from CS_CONNECTED to CS_PRIMED for ")[1].strip()
+                        elif "Going from CS_PRIMED to CS_ACTIVE for" in line:
+                            join_name = line.split("Going from CS_PRIMED to CS_ACTIVE for ")[1].strip()
                             join_name_clean = self.remove_color_codes(join_name)
                             if not join_name_clean.endswith("-Bot") and not self.is_restarting:
                                 if await self.config.join_disconnect_enabled():
                                     await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
+                                    # Schedule welcome message with cooldown
+                                    bot_name = await self.config.bot_name()
+                                    if bot_name and await self.validate_rcon_settings():
+                                        current_time = time.time()
+                                        if current_time - self.last_welcome_time >= 5:  # 5-second cooldown
+                                            self.last_welcome_time = current_time
+                                            welcome_message = f"sayasbot {bot_name} Hey {join_name}, welcome to the server^5! :wave:"
+                                            self.bot.loop.create_task(self.send_welcome_message(welcome_message))
+                                        else:
+                                            logger.debug(f"Skipped welcome message for {join_name_clean} due to cooldown")
 
                         elif "disconnected" in line:
                             match = re.search(r"info:\s*(.+?)\s*disconnected\s*\((\d+)\)", line)
@@ -483,6 +494,21 @@ class JKChatBridge(commands.Cog):
             except Exception as e:
                 logger.error(f"Error in monitor_log: {e}")
                 await asyncio.sleep(5)
+
+    async def send_welcome_message(self, message: str):
+        """Send a welcome message to the game server after a 5-second delay."""
+        await asyncio.sleep(5)
+        try:
+            await self.bot.loop.run_in_executor(
+                self.executor,
+                self.send_rcon_command,
+                message,
+                await self.config.rcon_host(),
+                await self.config.rcon_port(),
+                await self.config.rcon_password()
+            )
+        except Exception as e:
+            logger.error(f"Failed to send welcome message: {e}")
 
     async def reset_restart_flag(self, channel):
         """Reset the restart flag after 30 seconds if no map change occurs."""
@@ -540,7 +566,7 @@ class JKChatBridge(commands.Cog):
     @commands.is_owner()
     @commands.has_permissions(administrator=True)
     async def jkrcon(self, ctx, *, command: str):
-        """Send any RCON command to the server (Bot Owners/Adlims only)."""
+        """Send any RCON command to the server (Bot Owners/Admins only)."""
         if not await self.validate_rcon_settings():
             await ctx.send("RCON settings not fully configured.")
             return
