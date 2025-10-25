@@ -49,19 +49,29 @@ class MCChatBridge(commands.Cog):
         self.session = aiohttp.ClientSession()
 
     async def cog_load(self):
-        try:
-            await self.bot.wait_until_ready()  # Wait for bot to connect to Discord
-            await self.start_webhook_server()
-        except Exception as e:
-            self.logger.error(f"Failed to start webhook server: {str(e)}")
-            raise
+        # Start webhook server in a background task after bot is ready
+        self.webhook_task = self.bot.loop.create_task(self.start_webhook_task())
+        self.logger.debug("Scheduled webhook server startup task")
 
     async def cog_unload(self):
         if self.webhook_task:
             self.webhook_task.cancel()
-            await self.webhook_app.shutdown()
-            await self.webhook_app.cleanup()
+            try:
+                await self.webhook_task
+            except asyncio.CancelledError:
+                self.logger.debug("Webhook startup task cancelled")
+        await self.webhook_app.shutdown()
+        await self.webhook_app.cleanup()
         await self.session.close()
+
+    async def start_webhook_task(self):
+        """Background task to start the webhook server after bot is ready."""
+        try:
+            await self.bot.wait_until_ready()  # Wait for bot to connect to Discord
+            await self.start_webhook_server()
+        except Exception as e:
+            self.logger.error(f"Failed to start webhook server in background task: {str(e)}")
+            raise
 
     async def start_webhook_server(self):
         # Check if bot is in any guilds
