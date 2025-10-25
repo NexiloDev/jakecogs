@@ -50,6 +50,7 @@ class MCChatBridge(commands.Cog):
 
     async def cog_load(self):
         try:
+            await self.bot.wait_until_ready()  # Wait for bot to connect to Discord
             await self.start_webhook_server()
         except Exception as e:
             self.logger.error(f"Failed to start webhook server: {str(e)}")
@@ -63,6 +64,10 @@ class MCChatBridge(commands.Cog):
         await self.session.close()
 
     async def start_webhook_server(self):
+        # Check if bot is in any guilds
+        if not self.bot.guilds:
+            self.logger.error("No guilds available. Ensure the bot is invited to at least one server.")
+            raise RuntimeError("Cannot start webhook server: Bot is not in any guilds.")
         guild = self.bot.guilds[0]
         port = await self.config.guild(guild).webhook_port()
         runner = web.AppRunner(self.webhook_app)
