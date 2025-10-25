@@ -7,6 +7,7 @@ from github import Github, Auth
 from datetime import datetime, timezone
 import logging
 import re
+import asyncio  # Added for executor
 
 class RepoMonitor(commands.Cog):
     """A cog to monitor up to 5 GitHub repositories for new issues, PRs, merged PRs, releases, and comments.
@@ -218,7 +219,8 @@ class RepoMonitor(commands.Cog):
                         continue
 
                     try:
-                        repo = self.github_client.get_repo(repo_name)
+                        # Offload repo fetch to executor
+                        repo = await self.bot.loop.run_in_executor(None, lambda: self.github_client.get_repo(repo_name))
                         await self.check_issues(repo, guild, channel, conf, i)
                         await self.check_prs(repo, guild, channel, conf, i)
                         await self.check_releases(repo, guild, channel, conf, i)
@@ -232,7 +234,9 @@ class RepoMonitor(commands.Cog):
         last_issue_time = conf["last_issue_times"][index]
         last_time = datetime.fromisoformat(last_issue_time.replace("Z", "+00:00")) if last_issue_time else datetime.min.replace(tzinfo=timezone.utc)
 
-        for issue in repo.get_issues(state="open", sort="created", direction="desc"):
+        # Offload issue fetching to executor
+        issues = await self.bot.loop.run_in_executor(None, lambda: list(repo.get_issues(state="open", sort="created", direction="desc")))
+        for issue in issues:
             if issue.created_at <= last_time:
                 break
             if not issue.pull_request:  # Ensure it's an issue, not a PR
@@ -260,7 +264,9 @@ class RepoMonitor(commands.Cog):
         last_pr_time_dt = datetime.fromisoformat(last_pr_time.replace("Z", "+00:00")) if last_pr_time else datetime.min.replace(tzinfo=timezone.utc)
         last_merged_pr_time_dt = datetime.fromisoformat(last_merged_pr_time.replace("Z", "+00:00")) if last_merged_pr_time else datetime.min.replace(tzinfo=timezone.utc)
 
-        for pr in repo.get_pulls(state="all", sort="updated", direction="desc"):
+        # Offload PR fetching to executor
+        prs = await self.bot.loop.run_in_executor(None, lambda: list(repo.get_pulls(state="all", sort="updated", direction="desc")))
+        for pr in prs:
             if pr.created_at > last_pr_time_dt and pr.state == "open":
                 embed = discord.Embed(
                     title=f"🔄 New Pull Request: {pr.title}",
@@ -300,7 +306,9 @@ class RepoMonitor(commands.Cog):
         last_release_time = conf["last_release_times"][index]
         last_time = datetime.fromisoformat(last_release_time.replace("Z", "+00:00")) if last_release_time else datetime.min.replace(tzinfo=timezone.utc)
 
-        for release in repo.get_releases():
+        # Offload release fetching to executor
+        releases = await self.bot.loop.run_in_executor(None, lambda: list(repo.get_releases()))
+        for release in releases:
             if release.created_at <= last_time:
                 break
             embed = discord.Embed(
@@ -326,11 +334,14 @@ class RepoMonitor(commands.Cog):
         last_time = datetime.fromisoformat(last_comment_time.replace("Z", "+00:00")) if last_comment_time else datetime.min.replace(tzinfo=timezone.utc)
         latest_comment_time = last_time
 
-        # Check comments on issues (excluding PRs)
-        for issue in repo.get_issues(state="all", sort="updated", direction="desc"):
+        # Offload issue fetching to executor
+        issues = await self.bot.loop.run_in_executor(None, lambda: list(repo.get_issues(state="all", sort="updated", direction="desc")))
+        for issue in issues:
             if issue.updated_at <= last_time:
                 break
-            for comment in issue.get_comments():
+            # Offload comment fetching to executor
+            comments = await self.bot.loop.run_in_executor(None, lambda: list(issue.get_comments()))
+            for comment in comments:
                 if comment.created_at > last_time:
                     if not issue.pull_request:  # Ensure it's an issue, not a PR
                         embed = discord.Embed(
@@ -346,11 +357,14 @@ class RepoMonitor(commands.Cog):
                         await channel.send(embed=embed)
                         latest_comment_time = max(latest_comment_time, comment.created_at)
 
-        # Check comments on pull requests
-        for pr in repo.get_pulls(state="all", sort="updated", direction="desc"):
+        # Offload PR fetching to executor
+        prs = await self.bot.loop.run_in_executor(None, lambda: list(repo.get_pulls(state="all", sort="updated", direction="desc")))
+        for pr in prs:
             if pr.updated_at <= last_time:
                 break
-            for comment in pr.get_issue_comments():  # Issue comments on PRs
+            # Offload PR comment fetching to executor
+            comments = await self.bot.loop.run_in_executor(None, lambda: list(pr.get_issue_comments()))
+            for comment in comments:
                 if comment.created_at > last_time:
                     embed = discord.Embed(
                         title=f"💬 New Comment on Pull Request: {pr.title}",
