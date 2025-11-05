@@ -20,8 +20,8 @@ class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord using RCON and log monitoring, with ParaTracker JSON for server status."""
 
     # === Adjustable Random Chat Settings ===
-    RANDOM_CHAT_INTERVAL = 300   # 5 minutes
-    RANDOM_CHAT_CHANCE = 0.5     # 50%
+    RANDOM_CHAT_INTERVAL = 30   # 5 minutes
+    RANDOM_CHAT_CHANCE = 1     # 50%
 
     def __init__(self, bot):
         self.bot = bot
