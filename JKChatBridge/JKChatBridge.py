@@ -416,12 +416,12 @@ class JKChatBridge(commands.Cog):
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
         emoji_map = {
-            "SMILING FACE WITH SMILING EYES": ":)", "GRINNING FACE": ":D", "FACE WITH TEARS OF JOY": "XD", "ROLLING ON THE FLOOR LAUGHING": "xD", "WINKING FACE": ";)", "FACE WITH TONGUE": ":P", "CRYING FACE": ":(", "ANGRY FACE": ">:(",
-            "THUMBS UP": ":+1:", "THUMBS DOWN": ":-1:", "HEART SUIT": "<3", "SPARKLING HEART": "<3", "HEARTS": ":*", "SLIGHTLY SMILING FACE": ":)", "PERSPIRING FACE": ":S", "WINKING FACE WITH TONGUE": ";P",
-            "FACE WITH MONOCLE": ":o", "GRINNING FACE WITH SMILING EYES": "=D", "LAUGHING FACE": "xD", "FLUSHED FACE": "O.o", "NERD FACE": "B)", "SLEEPING FACE": "-_-", "GRINNING FACE WITH SWEAT": "^^;", "UNAMUSED FACE": ":/",
-            "KISSING FACE": ":*", "COOL FACE": "8)", "FACE SCREAMING IN FEAR": "D:", "THINKING FACE": ":?", "PARTYING FACE": "\\o/", "HUGGING FACE": ">^.^<", "ZANY FACE": ":p",
-            "HANDS IN PRAYER": ":pray:", "WAVING HAND": ":wave:", "SMILING FACE WITH OPEN MOUTH": ":D", "DOWNCAST FACE WITH SWEAT": ":S", "STEAM FROM NOSE": ">:(",
-            "SMILING FACE WITH HEART-EYES": "<3", "STAR-STRUCK": "*.*", "GRIMACING FACE": ":/", "INNOCENT FACE": "O:)", "JACK-O-LANTERN": ":jack_o_lantern:", "CHRISTMAS TREE": ":christmas_tree:"
+            "😊": ":)", "😄": ":D", "😂": "XD", "🤣": "xD", "😉": ";)", "😛": ":P", "😢": ":(", "😡": ">:(",
+            "👍": ":+1:", "👎": ":-1:", "❤️": "<3", "💖": "<3", "😍": ":*", "🙂": ":)", "😣": ":S", "😜": ";P",
+            "😮": ":o", "😁": "=D", "😆": "xD", "😳": "O.o", "🤓": "B)", "😴": "-_-", "😅": "^^;", "😒": ":/",
+            "😘": ":*", "😎": "8)", "😱": "D:", "🤔": "?:", "🥳": "\\o/", "🤗": ">^.^<", "🤪": ":p",
+            "🙏": ":pray:", "👋": ":wave:", "😃": ":D", "😓": ":S", "😤": ">:(" , "😋": ":P", "😶": ":-|",
+            "🥰": "<3", "🤩": "*.*", "😬": ":/", "😇": "O:)", "🎃": ":jack_o_lantern:", "🎄": ":christmas_tree:"
         }
         return ''.join(emoji_map.get(c, c) for c in text)
 
@@ -465,12 +465,12 @@ class JKChatBridge(commands.Cog):
     def replace_text_emotes_with_emojis(self, text):
         """Convert common text emoticons from Jedi Knight to Discord emojis."""
         text_emote_map = {
-            ":)": "SMILING FACE WITH SMILING EYES", ":D": "GRINNING FACE", "XD": "FACE WITH TEARS OF JOY", "xD": "ROLLING ON THE FLOOR LAUGHING", ";)": "WINKING FACE", ":P": "FACE WITH TONGUE", ":(": "CRYING FACE",
-            ">:(": "ANGRY FACE", ":+1:": "THUMBS UP", ":-1:": "THUMBS DOWN", "<3": "HEART SUIT", ":*": "HEARTS", ":S": "PERSPIRING FACE",
-            ":o": "FACE WITH MONOCLE", "=D": "GRINNING FACE WITH SMILING EYES", "xD": "LAUGHING FACE", "O.o": "FLUSHED FACE", "B)": "NERD FACE", "-_-": "SLEEPING FACE", "^^;": "GRINNING FACE WITH SWEAT",
-            ":/": "UNAMUSED FACE", ":*": "KISSING FACE", "8)": "COOL FACE", "D:": "FACE SCREAMING IN FEAR", ":?": "THINKING FACE", "\\o/": "PARTYING FACE", ">^.^<": "HUGGING FACE", ":p": "ZANY FACE",
-            ":pray:": "HANDS IN PRAYER", ":wave:": "WAVING HAND", ":-|": "NEUTRAL FACE", "*.*": "STAR-STRUCK", "O:)": "INNOCENT FACE",
-            ":jackolantern:": "JACK-O-LANTERN", ":christmastree:": "CHRISTMAS TREE"
+            ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
+            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣",
+            ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
+            ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
+            ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
+            ":jackolantern:": ":jack_o_lantern:", ":christmastree": ":christmas_tree:"
         }
         for text_emote, emoji in text_emote_map.items():
             text = text.replace(text_emote, emoji)
