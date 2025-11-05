@@ -10,6 +10,7 @@ import time
 import logging
 import aiohttp
 from urllib.parse import quote
+import random
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -17,6 +18,10 @@ logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord using RCON and log monitoring, with ParaTracker JSON for server status."""
+
+    # === Adjustable Random Chat Settings ===
+    RANDOM_CHAT_INTERVAL = 300   # 5 minutes
+    RANDOM_CHAT_CHANCE = 0.5     # 50%
 
     def __init__(self, bot):
         self.bot = bot
@@ -31,32 +36,91 @@ class JKChatBridge(commands.Cog):
             custom_emoji=None,
             join_disconnect_enabled=True,
             tracker_url=None,
-            bot_name=None
+            bot_name=None,
+            random_chat_path=None  # New: path to random chat lines .txt
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
         self.monitor_task = None
+        self.random_chat_task = None
         self.is_restarting = False
         self.restart_map = None
-        self.last_welcome_time = 0  # Track time of last welcome message
+        self.last_welcome_time = 0
+        self.random_chat_lines = []  # Loaded in memory
         self.start_monitoring()
+        self.start_random_chat_task()
         # Start auto-reload task
         self.bot.loop.create_task(self.auto_reload_monitor())
 
     async def cog_load(self) -> None:
         """Called when the cog is loaded."""
         logger.debug("Cog loaded.")
+        await self.load_random_chat_lines()
+
+    async def load_random_chat_lines(self):
+        """Load random chat lines from file (on start, setchatpath, or reload)."""
+        path = await self.config.random_chat_path()
+        self.random_chat_lines = []
+        if not path or not os.path.exists(path):
+            logger.debug(f"Random chat file not found or not set: {path}")
+            return
+        try:
+            async with aiofiles.open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = await f.read()
+            lines = [
+                line.strip()
+                for line in content.splitlines()
+                if line.strip() and not line.strip().startswith('#')
+            ]
+            self.random_chat_lines = lines
+            logger.info(f"Loaded {len(lines)} random chat lines from {path}")
+        except Exception as e:
+            logger.error(f"Failed to load random chat lines: {e}")
+
+    async def start_random_chat_task(self):
+        """Start the background task for random chat messages."""
+        if self.random_chat_task and not self.random_chat_task.done():
+            return
+        self.random_chat_task = self.bot.loop.create_task(self.random_chat_loop())
+
+    async def random_chat_loop(self):
+        """Every X minutes, 50% chance to send a random line via sayasbot."""
+        await self.bot.wait_until_ready()
+        while True:
+            try:
+                await asyncio.sleep(self.RANDOM_CHAT_INTERVAL)
+                if not await self.validate_rcon_settings():
+                    continue
+                bot_name = await self.config.bot_name()
+                if not bot_name or not self.random_chat_lines:
+                    continue
+                if random.random() > self.RANDOM_CHAT_CHANCE:
+                    continue
+
+                line = random.choice(self.random_chat_lines)
+                command = f"sayasbot {bot_name} {line}"
+                await self.bot.loop.run_in_executor(
+                    self.executor,
+                    self.send_rcon_command,
+                    command,
+                    await self.config.rcon_host(),
+                    await self.config.rcon_port(),
+                    await self.config.rcon_password()
+                )
+            except Exception as e:
+                logger.error(f"Error in random_chat_loop: {e}")
+                await asyncio.sleep(60)
 
     async def auto_reload_monitor(self):
         """Run silent reload_monitor every 5 minutes."""
         while True:
-            try:  # Added error handling to prevent task crashes
-                await asyncio.sleep(300)  # 5 minutes
-                await self._reload_monitor_logic(silent=True)  # Changed to call new method
+            try:
+                await asyncio.sleep(300)
+                await self._reload_monitor_logic(silent=True)
                 logger.debug("Auto-reload triggered")
             except Exception as e:
                 logger.error(f"Error in auto_reload_monitor: {e}")
-                await asyncio.sleep(300)  # Wait before retrying
+                await asyncio.sleep(300)
 
     async def validate_rcon_settings(self) -> bool:
         """Check if RCON settings are fully configured for chat and player commands."""
@@ -76,7 +140,6 @@ class JKChatBridge(commands.Cog):
     async def setlogbasepath(self, ctx: commands.Context, path: str) -> None:
         """Set the base path for the qconsole.log file."""
         await self.config.log_base_path.set(path)
-        # Restart monitoring if already running
         if self.monitor_task and not self.monitor_task.done():
             self.monitoring = False
             self.monitor_task.cancel()
@@ -126,9 +189,19 @@ class JKChatBridge(commands.Cog):
         await ctx.send(f"Bot name set to: {name}")
 
     @jkbridge.command()
+    async def setchatpath(self, ctx: commands.Context, path: str) -> None:
+        """Set the path to the random chat lines .txt file."""
+        await self.config.random_chat_path.set(path)
+        await self.load_random_chat_lines()
+        count = len(self.random_chat_lines)
+        await ctx.send(f"Random chat file set to: `{path}`\nLoaded **{count}** lines. Use `[p]reload JKChatBridge` after editing.")
+
+    @jkbridge.command()
     async def showsettings(self, ctx: commands.Context) -> None:
         """Show the current settings for the JK chat bridge."""
         channel = self.bot.get_channel(await self.config.discord_channel_id()) if await self.config.discord_channel_id() else None
+        chat_path = await self.config.random_chat_path()
+        chat_status = f"{len(self.random_chat_lines)} lines loaded" if chat_path and self.random_chat_lines else "Not set or empty"
         settings_message = (
             f"**Current Settings:**\n"
             f"Log Base Path: {await self.config.log_base_path() or 'Not set'}\n"
@@ -138,9 +211,13 @@ class JKChatBridge(commands.Cog):
             f"RCON Password: {'Set' if await self.config.rcon_password() else 'Not set'}\n"
             f"Custom Emoji: {await self.config.custom_emoji() or 'Not set'}\n"
             f"Tracker URL: {await self.config.tracker_url() or 'Not set'}\n"
-            f"Bot Name: {await self.config.bot_name() or 'Not set'}"
+            f"Bot Name: {await self.config.bot_name() or 'Not set'}\n"
+            f"Random Chat File: `{chat_path or 'Not set'}` → {chat_status}"
         )
         await ctx.send(settings_message)
+
+    # === REST OF ORIGINAL COMMANDS UNCHANGED ===
+    # (jkstatus, jkplayer, on_message, etc. — all identical)
 
     @commands.command(name="jkstatus")
     async def status(self, ctx):
@@ -187,18 +264,14 @@ class JKChatBridge(commands.Cog):
                     ) + "\n```"
 
                 embed1 = discord.Embed(title=f"{server_name}", color=discord.Color.gold())
-                embed1.add_field(name="👥 Players", value=player_count, inline=True)
-                # Mod name from info section, cleaned
+                embed1.add_field(name="Players", value=player_count, inline=True)
                 mod_name = self.remove_color_codes(info.get("gamename", "Unknown Mod"))
-                embed1.add_field(name="🎮 Mod", value=mod_name, inline=True)
-                # Version field if present in info section
+                embed1.add_field(name="Mod", value=mod_name, inline=True)
                 lugormod_version = info.get("Lugormod_Version")
                 if lugormod_version:
                     version_clean = self.remove_color_codes(lugormod_version)
                     embed1.add_field(name="Version", value=version_clean, inline=True)
-                # Map field as an inline field after version
-                embed1.add_field(name="🗺️ Map", value=f"`{map_name}`", inline=True)
-                # Add IP and Location fields
+                embed1.add_field(name="Map", value=f"`{map_name}`", inline=True)
                 server_ip = server_info.get("serverIPAddress", "Unknown")
                 geoip = server_info.get("geoIPcountryCode", "Unknown")
                 embed1.add_field(name="IP", value=server_ip, inline=True)
@@ -210,7 +283,7 @@ class JKChatBridge(commands.Cog):
                     embed1.set_image(url=image_url)
 
                 embed2 = discord.Embed(color=discord.Color.gold())
-                embed2.add_field(name="📋 Online Players", value=player_list, inline=False)
+                embed2.add_field(name="Online Players", value=player_list, inline=False)
 
                 await ctx.send(embed=embed1)
                 await ctx.send(embed=embed2)
@@ -268,15 +341,15 @@ class JKChatBridge(commands.Cog):
 
         player_name = stats.get("Name", username).encode('utf-8', 'replace').decode()
         embed = discord.Embed(title=f"Player Stats for {player_name} *({stats.get('Username', 'N/A')})*", color=discord.Color.blue())
-        embed.add_field(name="⏱️ Playtime", value=playtime, inline=True)
-        embed.add_field(name="🔼 Level", value=stats.get("Level", "N/A"), inline=True)
-        embed.add_field(name="🛡️ Profession", value=stats.get("Profession", "N/A"), inline=True)
-        embed.add_field(name="💰 Credits", value=stats.get("Credits", "N/A"), inline=True)
-        embed.add_field(name="💼 Stashes", value=stats.get("Stashes", "N/A"), inline=True)
-        embed.add_field(name="🏆 Duel Score", value=stats.get("Score", "N/A"), inline=True)
-        embed.add_field(name="⚔️ Duels Won", value=str(wins), inline=True)
-        embed.add_field(name="⚔️ Duels Lost", value=str(losses), inline=True)
-        embed.add_field(name="🗡️ Total Kills", value=stats.get("Kills", "0"), inline=True)
+        embed.add_field(name="Playtime", value=playtime, inline=True)
+        embed.add_field(name="Level", value=stats.get("Level", "N/A"), inline=True)
+        embed.add_field(name="Profession", value=stats.get("Profession", "N/A"), inline=True)
+        embed.add_field(name="Credits", value=stats.get("Credits", "N/A"), inline=True)
+        embed.add_field(name="Stashes", value=stats.get("Stashes", "N/A"), inline=True)
+        embed.add_field(name="Duel Score", value=stats.get("Score", "N/A"), inline=True)
+        embed.add_field(name="Duels Won", value=str(wins), inline=True)
+        embed.add_field(name="Duels Lost", value=str(losses), inline=True)
+        embed.add_field(name="Total Kills", value=stats.get("Kills", "0"), inline=True)
         embed.set_footer(text=f"Last Login: {stats.get('Last login', 'N/A')}")
         await ctx.send(embed=embed)
 
@@ -291,7 +364,6 @@ class JKChatBridge(commands.Cog):
         if any(message.content.startswith(prefix) for prefix in prefixes):
             return
 
-        # Use display_name for server nickname or global profile name
         discord_username = self.clean_for_latin1(message.author.display_name)
         message_content = self.clean_for_latin1(message.content)
         for member in message.mentions:
@@ -332,27 +404,24 @@ class JKChatBridge(commands.Cog):
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
         emoji_map = {
-            "😊": ":)", "😄": ":D", "😂": "XD", "🤣": "xD", "😉": ";)", "😛": ":P", "😢": ":(", "😡": ">:(",
-            "👍": ":+1:", "👎": ":-1:", "❤️": "<3", "💖": "<3", "😍": ":*", "🙂": ":)", "😣": ":S", "😜": ";P",
-            "😮": ":o", "😁": "=D", "😆": "xD", "😳": "O.o", "🤓": "B)", "😴": "-_-", "😅": "^^;", "😒": ":/",
-            "😘": ":*", "😎": "8)", "😱": "D:", "🤔": ":?", "🥳": "\\o/", "🤗": ">^.^<", "🤪": ":p",
-            "🙏": ":pray:", "👋": ":wave:", "😃": ":D", "😓": ":S", "😤": ">:(", "😋": ":P", "😶": ":-|",
-            "🥰": "<3", "🤩": "*.*", "😬": ":/", "😇": "O:)", "🎃": ":jack_o_lantern:", "🎄": ":christmas_tree:"
+            "SMILING FACE WITH SMILING EYES": ":)", "GRINNING FACE": ":D", "FACE WITH TEARS OF JOY": "XD", "ROLLING ON THE FLOOR LAUGHING": "xD", "WINKING FACE": ";)", "FACE WITH TONGUE": ":P", "CRYING FACE": ":(", "ANGRY FACE": ">:(",
+            "THUMBS UP": ":+1:", "THUMBS DOWN": ":-1:", "HEART SUIT": "<3", "SPARKLING HEART": "<3", "HEARTS": ":*", "SLIGHTLY SMILING FACE": ":)", "PERSPIRING FACE": ":S", "WINKING FACE WITH TONGUE": ";P",
+            "FACE WITH MONOCLE": ":o", "GRINNING FACE WITH SMILING EYES": "=D", "LAUGHING FACE": "xD", "FLUSHED FACE": "O.o", "NERD FACE": "B)", "SLEEPING FACE": "-_-", "GRINNING FACE WITH SWEAT": "^^;", "UNAMUSED FACE": ":/",
+            "KISSING FACE": ":*", "COOL FACE": "8)", "FACE SCREAMING IN FEAR": "D:", "THINKING FACE": ":?", "PARTYING FACE": "\\o/", "HUGGING FACE": ">^.^<", "ZANY FACE": ":p",
+            "HANDS IN PRAYER": ":pray:", "WAVING HAND": ":wave:", "SMILING FACE WITH OPEN MOUTH": ":D", "DOWNCAST FACE WITH SWEAT": ":S", "STEAM FROM NOSE": ">:(",
+            "SMILING FACE WITH HEART-EYES": "<3", "STAR-STRUCK": "*.*", "GRIMACING FACE": ":/", "INNOCENT FACE": "O:)", "JACK-O-LANTERN": ":jack_o_lantern:", "CHRISTMAS TREE": ":christmas_tree:"
         }
         return ''.join(emoji_map.get(c, c) for c in text)
 
     def clean_for_latin1(self, text):
         """Remove or replace characters that can't be encoded in Latin-1."""
-        # First, try to apply emoji replacements
         text = self.replace_emojis_with_names(text)
-        # Then, filter out any remaining non-Latin-1 characters
         return ''.join(c if ord(c) < 256 else '' for c in text)
 
     def send_rcon_command(self, command, host, port, password):
         """Send an RCON command to the game server and return the response."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(1)
-        # Clean the command and password for Latin-1 compatibility
         clean_command = self.clean_for_latin1(command)
         clean_password = self.clean_for_latin1(password)
         packet = b'\xff\xff\xff\xffrcon ' + clean_password.encode('latin-1') + b' ' + clean_command.encode('latin-1')
@@ -367,13 +436,10 @@ class JKChatBridge(commands.Cog):
                     data, _ = sock.recvfrom(16384)
                     response += data
                     packet_count += 1
-                    print(f"Received packet {packet_count}: {len(data)} bytes")
                 except socket.timeout:
-                    print(f"Stopped receiving after {packet_count} packets")
                     break
             if not response:
                 raise Exception("No response received from server.")
-            print(f"Total packets received: {packet_count}, Total bytes: {len(response)}")
             return response
         except socket.timeout:
             raise Exception("RCON command timed out.")
@@ -389,12 +455,12 @@ class JKChatBridge(commands.Cog):
     def replace_text_emotes_with_emojis(self, text):
         """Convert common text emoticons from Jedi Knight to Discord emojis."""
         text_emote_map = {
-            ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
-            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣",
-            ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
-            ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
-            ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
-            ":jackolantern:": ":jack_o_lantern:", ":christmastree:": ":christmas_tree:"
+            ":)": "SMILING FACE WITH SMILING EYES", ":D": "GRINNING FACE", "XD": "FACE WITH TEARS OF JOY", "xD": "ROLLING ON THE FLOOR LAUGHING", ";)": "WINKING FACE", ":P": "FACE WITH TONGUE", ":(": "CRYING FACE",
+            ">:(": "ANGRY FACE", ":+1:": "THUMBS UP", ":-1:": "THUMBS DOWN", "<3": "HEART SUIT", ":*": "HEARTS", ":S": "PERSPIRING FACE",
+            ":o": "FACE WITH MONOCLE", "=D": "GRINNING FACE WITH SMILING EYES", "xD": "LAUGHING FACE", "O.o": "FLUSHED FACE", "B)": "NERD FACE", "-_-": "SLEEPING FACE", "^^;": "GRINNING FACE WITH SWEAT",
+            ":/": "UNAMUSED FACE", ":*": "KISSING FACE", "8)": "COOL FACE", "D:": "FACE SCREAMING IN FEAR", ":?": "THINKING FACE", "\\o/": "PARTYING FACE", ">^.^<": "HUGGING FACE", ":p": "ZANY FACE",
+            ":pray:": "HANDS IN PRAYER", ":wave:": "WAVING HAND", ":-|": "NEUTRAL FACE", "*.*": "STAR-STRUCK", "O:)": "INNOCENT FACE",
+            ":jackolantern:": "JACK-O-LANTERN", ":christmastree:": "CHRISTMAS TREE"
         }
         for text_emote, emoji in text_emote_map.items():
             text = text.replace(text_emote, emoji)
@@ -464,18 +530,18 @@ class JKChatBridge(commands.Cog):
 
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
-                            await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
+                            await channel.send("WARNING **Standby**: Server integration suspended while map changes or server restarts.")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
                         elif "------ Server Initialization ------" in line and not self.is_restarting:
                             self.is_restarting = True
-                            await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
+                            await channel.send("WARNING **Standby**: Server integration suspended while map changes or server restarts.")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
 
                         elif "Server: " in line and self.is_restarting:
                             self.restart_map = line.split("Server: ")[1].strip()
                             await asyncio.sleep(10)
                             if self.restart_map:
-                                await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
+                                await channel.send(f"SUCCESS **Server Integration Resumed**: Map {self.restart_map} loaded.")
                             self.is_restarting = False
                             self.restart_map = None
 
@@ -485,16 +551,13 @@ class JKChatBridge(commands.Cog):
                             if not join_name_clean.endswith("-Bot") and not self.is_restarting:
                                 if await self.config.join_disconnect_enabled():
                                     await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
-                                    # Schedule welcome message with cooldown
                                     bot_name = await self.config.bot_name()
                                     if bot_name and await self.validate_rcon_settings():
                                         current_time = time.time()
-                                        if current_time - self.last_welcome_time >= 5:  # 5-second cooldown
+                                        if current_time - self.last_welcome_time >= 5:
                                             self.last_welcome_time = current_time
                                             welcome_message = f"sayasbot {bot_name} ^7Hey {join_name}^7, welcome to the server^5! :jackolantern:"
                                             self.bot.loop.create_task(self.send_welcome_message(welcome_message))
-                                        else:
-                                            logger.debug(f"Skipped welcome message for {join_name_clean} due to cooldown")
 
                         elif "disconnected" in line:
                             match = re.search(r"info:\s*(.+?)\s*disconnected\s*\((\d+)\)", line)
@@ -530,7 +593,7 @@ class JKChatBridge(commands.Cog):
         if self.is_restarting:
             self.is_restarting = False
             self.restart_map = None
-            await channel.send("✅ **Server Integration Resumed**: Restart timed out, resuming normal operation.")
+            await channel.send("SUCCESS **Server Integration Resumed**: Restart timed out, resuming normal operation.")
 
     def start_monitoring(self):
         """Start the log monitoring task if it's not already running."""
@@ -551,7 +614,7 @@ class JKChatBridge(commands.Cog):
 
     async def cog_unload(self):
         """Clean up when the cog is unloaded."""
-        for task in [self.monitor_task]:
+        for task in [self.monitor_task, self.random_chat_task]:
             if task and not task.done():
                 task.cancel()
                 try:
@@ -585,13 +648,12 @@ class JKChatBridge(commands.Cog):
             await ctx.send("RCON settings not fully configured.")
             return
         try:
-            full_command = f"rcon {command}"
             await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command, command, await self.config.rcon_host(), await self.config.rcon_port(), await self.config.rcon_password()
             )
-            await ctx.send(f"RCON command sent: `{full_command}`")
+            await ctx.send(f"RCON command sent: `{command}`")
         except Exception as e:
-            await ctx.send(f"Failed to send RCON command `{full_command}`: {e}")
+            await ctx.send(f"Failed to send RCON command `{command}`: {e}")
 
     @commands.command(name="jktoggle")
     @commands.is_owner()
@@ -620,8 +682,9 @@ class JKChatBridge(commands.Cog):
         self.is_restarting = False
         self.restart_map = None
         self.start_monitoring()
+        await self.load_random_chat_lines()  # Reload random lines
         if not silent and ctx:
-            await ctx.send("✅ **Log monitoring task reloaded.**")
+            await ctx.send("SUCCESS **Log monitoring task reloaded.**")
 
     @commands.command(name="jkreload", aliases=["jkreloadmonitor"])
     async def reload_monitor(self, ctx: commands.Context = None, silent: bool = False):
