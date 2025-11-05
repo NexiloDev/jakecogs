@@ -20,7 +20,7 @@ class JKChatBridge(commands.Cog):
     """Bridges public chat between Jedi Knight: Jedi Academy and Discord using RCON and log monitoring."""
 
     # === Adjustable Random Chat Settings ===
-    RANDOM_CHAT_INTERVAL = 150   # 2.5 minutes
+    RANDOM_CHAT_INTERVAL = 300   # 5 minutes
     RANDOM_CHAT_CHANCE = 0.5     # 50%
 
     def __init__(self, bot):
@@ -48,6 +48,7 @@ class JKChatBridge(commands.Cog):
         self.random_chat_lines = []
         self.start_monitoring()
         self.bot.loop.create_task(self._start_random_chat_when_ready())
+        self.bot.loop.create_task(self.auto_reload_monitor())  # ← RESTORED: Auto-recovery
 
     async def cog_load(self) -> None:
         """Called when the cog is loaded."""
@@ -114,6 +115,28 @@ class JKChatBridge(commands.Cog):
             except Exception as e:
                 logger.error(f"Error in random_chat_loop: {e}")
                 await asyncio.sleep(60)
+
+    async def auto_reload_monitor(self):
+        """Silently restart log monitor every 5 minutes — recovers from server crash."""
+        while True:
+            try:
+                await asyncio.sleep(300)
+                if not await self.config.log_base_path():
+                    continue
+                log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
+                if not os.path.exists(log_file):
+                    logger.info("qconsole.log missing — will restart monitor.")
+                await self._safe_restart_monitor()
+            except Exception as e:
+                logger.error(f"Error in auto_reload_monitor: {e}")
+                await asyncio.sleep(300)
+
+    async def _safe_restart_monitor(self):
+        """Restart only if task is dead."""
+        if self.monitor_task and not self.monitor_task.done():
+            return
+        logger.info("Restarting log monitor due to crash or missing file.")
+        self.start_monitoring()
 
     async def validate_rcon_settings(self) -> bool:
         return all([
@@ -393,12 +416,12 @@ class JKChatBridge(commands.Cog):
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
         emoji_map = {
-            "😊": ":)", "😄": ":D", "😂": "XD", "🤣": "xD", "😉": ";)", "😛": ":P", "😢": ":(", "😡": ">:(",
-            "👍": ":+1:", "👎": ":-1:", "❤️": "<3", "💖": "<3", "😍": ":*", "🙂": ":)", "😣": ":S", "😜": ";P",
-            "😮": ":o", "😁": "=D", "😆": "xD", "😳": "O.o", "🤓": "B)", "😴": "-_-", "😅": "^^;", "😒": ":/",
-            "😘": ":*", "😎": "8)", "😱": "D:", "🤔": ":?", "🥳": "\\o/", "🤗": ">^.^<", "🤪": ":p",
-            "🙏": ":pray:", "👋": ":wave:", "😃": ":D", "😓": ":S", "😤": ">:(", "😋": ":P", "😶": ":-|",
-            "🥰": "<3", "🤩": "*.*", "😬": ":/", "😇": "O:)", "🎃": ":jack_o_lantern:", "🎄": ":christmas_tree:"
+            "SMILING FACE WITH SMILING EYES": ":)", "GRINNING FACE": ":D", "FACE WITH TEARS OF JOY": "XD", "ROLLING ON THE FLOOR LAUGHING": "xD", "WINKING FACE": ";)", "FACE WITH TONGUE": ":P", "CRYING FACE": ":(", "ANGRY FACE": ">:(",
+            "THUMBS UP": ":+1:", "THUMBS DOWN": ":-1:", "HEART SUIT": "<3", "SPARKLING HEART": "<3", "HEARTS": ":*", "SLIGHTLY SMILING FACE": ":)", "PERSPIRING FACE": ":S", "WINKING FACE WITH TONGUE": ";P",
+            "FACE WITH MONOCLE": ":o", "GRINNING FACE WITH SMILING EYES": "=D", "LAUGHING FACE": "xD", "FLUSHED FACE": "O.o", "NERD FACE": "B)", "SLEEPING FACE": "-_-", "GRINNING FACE WITH SWEAT": "^^;", "UNAMUSED FACE": ":/",
+            "KISSING FACE": ":*", "COOL FACE": "8)", "FACE SCREAMING IN FEAR": "D:", "THINKING FACE": ":?", "PARTYING FACE": "\\o/", "HUGGING FACE": ">^.^<", "ZANY FACE": ":p",
+            "HANDS IN PRAYER": ":pray:", "WAVING HAND": ":wave:", "SMILING FACE WITH OPEN MOUTH": ":D", "DOWNCAST FACE WITH SWEAT": ":S", "STEAM FROM NOSE": ">:(",
+            "SMILING FACE WITH HEART-EYES": "<3", "STAR-STRUCK": "*.*", "GRIMACING FACE": ":/", "INNOCENT FACE": "O:)", "JACK-O-LANTERN": ":jack_o_lantern:", "CHRISTMAS TREE": ":christmas_tree:"
         }
         return ''.join(emoji_map.get(c, c) for c in text)
 
@@ -442,12 +465,12 @@ class JKChatBridge(commands.Cog):
     def replace_text_emotes_with_emojis(self, text):
         """Convert common text emoticons from Jedi Knight to Discord emojis."""
         text_emote_map = {
-            ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
-            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣",
-            ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
-            ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
-            ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
-            ":jackolantern:": "🎃", ":christmastree:": "🎄"
+            ":)": "SMILING FACE WITH SMILING EYES", ":D": "GRINNING FACE", "XD": "FACE WITH TEARS OF JOY", "xD": "ROLLING ON THE FLOOR LAUGHING", ";)": "WINKING FACE", ":P": "FACE WITH TONGUE", ":(": "CRYING FACE",
+            ">:(": "ANGRY FACE", ":+1:": "THUMBS UP", ":-1:": "THUMBS DOWN", "<3": "HEART SUIT", ":*": "HEARTS", ":S": "PERSPIRING FACE",
+            ":o": "FACE WITH MONOCLE", "=D": "GRINNING FACE WITH SMILING EYES", "xD": "LAUGHING FACE", "O.o": "FLUSHED FACE", "B)": "NERD FACE", "-_-": "SLEEPING FACE", "^^;": "GRINNING FACE WITH SWEAT",
+            ":/": "UNAMUSED FACE", ":*": "KISSING FACE", "8)": "COOL FACE", "D:": "FACE SCREAMING IN FEAR", ":?": "THINKING FACE", "\\o/": "PARTYING FACE", ">^.^<": "HUGGING FACE", ":p": "ZANY FACE",
+            ":pray:": "HANDS IN PRAYER", ":wave:": "WAVING HAND", ":-|": "NEUTRAL FACE", "*.*": "STAR-STRUCK", "O:)": "INNOCENT FACE",
+            ":jackolantern:": "JACK-O-LANTERN", ":christmastree:": "CHRISTMAS TREE"
         }
         for text_emote, emoji in text_emote_map.items():
             text = text.replace(text_emote, emoji)
@@ -585,8 +608,9 @@ class JKChatBridge(commands.Cog):
     def start_monitoring(self):
         """Safely start log monitoring — only if not already running."""
         if self.monitor_task and not self.monitor_task.done():
-            logger.warning("Monitor task already running — skipping restart.")
+            logger.debug("Monitor task already running — skipping.")
             return
+        logger.info("Starting log monitor task.")
         self.monitor_task = self.bot.loop.create_task(self.monitor_log())
 
     def parse_chat_line(self, line):
