@@ -48,7 +48,8 @@ class JKChatBridge(commands.Cog):
         self.random_chat_lines = []
         self.start_monitoring()
         self.bot.loop.create_task(self._start_random_chat_when_ready())
-        self.bot.loop.create_task(self.auto_reload_monitor())  # ← RESTORED: Auto-recovery
+        # Start auto-reload task
+        self.bot.loop.create_task(self.auto_reload_monitor())
 
     async def cog_load(self) -> None:
         """Called when the cog is loaded."""
@@ -117,19 +118,15 @@ class JKChatBridge(commands.Cog):
                 await asyncio.sleep(60)
 
     async def auto_reload_monitor(self):
-        """Silently restart log monitor every 5 minutes — recovers from server crash."""
+        """Run silent reload_monitor every 5 minutes."""
         while True:
-            try:
-                await asyncio.sleep(300)
-                if not await self.config.log_base_path():
-                    continue
-                log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
-                if not os.path.exists(log_file):
-                    logger.info("qconsole.log missing — will restart monitor.")
-                await self._safe_restart_monitor()
+            try:  # Added error handling to prevent task crashes
+                await asyncio.sleep(300)  # 5 minutes
+                await self._reload_monitor_logic(silent=True)  # Changed to call new method
+                logger.debug("Auto-reload triggered")
             except Exception as e:
                 logger.error(f"Error in auto_reload_monitor: {e}")
-                await asyncio.sleep(300)
+                await asyncio.sleep(300)  # Wait before retrying
 
     async def _safe_restart_monitor(self):
         """Restart only if task is dead."""
@@ -540,18 +537,18 @@ class JKChatBridge(commands.Cog):
 
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
-                            await channel.send("Standby: Server integration suspended while map changes or server restarts.")
+                            await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
                         elif "------ Server Initialization ------" in line and not self.is_restarting:
                             self.is_restarting = True
-                            await channel.send("Standby: Server integration suspended while map changes or server restarts.")
+                            await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
 
                         elif "Server: " in line and self.is_restarting:
                             self.restart_map = line.split("Server: ")[1].strip()
                             await asyncio.sleep(10)
                             if self.restart_map:
-                                await channel.send(f"Server Integration Resumed: Map {self.restart_map} loaded.")
+                                await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
                             self.is_restarting = False
                             self.restart_map = None
 
