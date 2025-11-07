@@ -525,10 +525,11 @@ class JKChatBridge(commands.Cog):
                         if "info: IP: " in line and await self.config.vpn_check_enabled():
                             parts = line.split()
                             if len(parts) >= 5:
-                                ip = parts[2]
+                                ip = parts[3]
                                 player_id_str = parts[-1]
                                 if player_id_str.isdigit():
                                     player_id = int(player_id_str)
+                                    logger.info(f"VPN check triggered for Player ID {player_id} | IP {ip}")
                                     self.bot.loop.create_task(self._handle_vpn_check(player_id, ip))
                             continue
 
