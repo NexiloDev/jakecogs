@@ -9,6 +9,8 @@ import aiohttp
 logger = logging.getLogger("JKChatBridge")
 
 class MonitorHandler:
+    # ------------------------------------------------------------------
+    # Called from __init__.py – creates all attributes the cog expects
     def setup_attributes(self):
         self.monitoring = False
         self.monitor_task = None
@@ -16,6 +18,7 @@ class MonitorHandler:
         self.restart_map = None
         self.last_welcome_time = 0
 
+    # ------------------------------------------------------------------
     async def monitor_log(self):
         self.monitoring = True
         log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")
@@ -48,7 +51,7 @@ class MonitorHandler:
                             continue
                         line = line.strip()
 
-                        # === VPN Detection: Fixed index ===
+                        # VPN detection
                         if "info: IP: " in line and await self.config.vpn_check_enabled():
                             parts = line.split()
                             if len(parts) >= 6:
@@ -60,12 +63,14 @@ class MonitorHandler:
                                     self.bot.loop.create_task(self._handle_vpn_check(player_id, ip))
                             continue
 
+                        # Game chat
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
                                 message = self.replace_text_emotes_with_emojis(message)
                                 await channel.send(f"**{player_name}**: {message}")
 
+                        # Duel announcement
                         elif "duel:" in line and "won a duel against" in line:
                             parts = line.split("duel:")[1].split("won a duel against")
                             if len(parts) == 2:
@@ -81,6 +86,7 @@ class MonitorHandler:
                                             await self.config.rcon_port(), await self.config.rcon_password()
                                         )
 
+                        # Server restart / map change
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
                             await channel.send("Standby: Server integration suspended while map changes or server restarts.")
@@ -99,6 +105,7 @@ class MonitorHandler:
                             self.is_restarting = False
                             self.restart_map = None
 
+                        # Player join
                         elif "Going from CS_PRIMED to CS_ACTIVE for" in line:
                             join_name = line.split("for ")[1].strip()
                             name_clean = self.remove_color_codes(join_name)
@@ -112,6 +119,7 @@ class MonitorHandler:
                                         msg = f"sayasbot {bot_name} ^7Hey {join_name}^7, welcome to the server^5! :jackolantern:"
                                         self.bot.loop.create_task(self.send_welcome_message(msg))
 
+                        # Player disconnect
                         elif "disconnected" in line:
                             match = re.search(r"info:\s*(.+?)\s*disconnected\s*\((\d+)\)", line)
                             if match and await self.config.join_disconnect_enabled():
@@ -123,6 +131,7 @@ class MonitorHandler:
                 logger.error(f"Error in monitor_log: {e}")
                 await asyncio.sleep(5)
 
+    # ------------------------------------------------------------------
     def start_monitoring(self):
         if self.monitor_task and not self.monitor_task.done():
             logger.debug("Monitor task already running.")
@@ -130,6 +139,7 @@ class MonitorHandler:
         logger.info("Starting log monitor task.")
         self.monitor_task = self.bot.loop.create_task(self.monitor_log())
 
+    # ------------------------------------------------------------------
     async def reset_restart_flag(self, channel):
         await asyncio.sleep(30)
         if self.is_restarting:
@@ -137,6 +147,7 @@ class MonitorHandler:
             self.restart_map = None
             await channel.send("Server Integration Resumed: Restart timed out, resuming normal operation.")
 
+    # ------------------------------------------------------------------
     async def _handle_vpn_check(self, player_id: int, ip: str):
         api_key = await self.config.vpn_api_key()
         if not api_key:
