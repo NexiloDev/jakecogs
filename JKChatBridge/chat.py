@@ -1,3 +1,4 @@
+from redbot.core import commands
 import re
 
 class ChatHandler:
