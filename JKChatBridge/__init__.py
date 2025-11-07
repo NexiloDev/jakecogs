@@ -10,11 +10,12 @@ from .config import ConfigCommands
 from .monitor import MonitorHandler
 from .chat import ChatHandler
 from .rcon import RCONHandler
-from .commands import JKCommands
 
 logger = logging.getLogger("JKChatBridge")
 
-class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RCONHandler, JKCommands):
+# DO NOT IMPORT JKCommands here
+
+class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RCONHandler):
     RANDOM_CHAT_INTERVAL = 300
     RANDOM_CHAT_CHANCE = 0.5
 
@@ -23,6 +24,11 @@ class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RC
         self.config = self.init_config(bot)
         self.setup_attributes()
         self.setup_config_commands(bot)
+
+        # Import JKCommands AFTER all other modules are loaded
+        from .commands import JKCommands
+        self.__class__ = type('JKChatBridge', (JKChatBridge, JKCommands), {})
+
         self.start_monitoring()
         self.bot.loop.create_task(self._start_random_chat_when_ready())
         self.bot.loop.create_task(self.auto_reload_monitor())
@@ -35,7 +41,7 @@ class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RC
         self.restart_map = None
         self.last_welcome_time = 0
         self.random_chat_lines = []
-        self.executor = ThreadPoolExecutor(max_workers=2)  # MOVED HERE
+        self.executor = ThreadPoolExecutor(max_workers=2)
 
     async def _start_random_chat_when_ready(self):
         await self.bot.wait_until_ready()
