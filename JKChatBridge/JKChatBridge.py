@@ -317,7 +317,7 @@ class JKChatBridge(commands.Cog):
                     data = await resp.json()
                     if data.get("security", {}).get("vpn", False):
                         bot_name = await self.config.bot_name() or "Server"
-                        msg = f"sayasbot {bot_name} VPN Detected ^3(^7IP: {ip} ^3| ^7Player ID: {player_id}^7) :eyes:"
+                        msg = f"say_admins {bot_name} VPN Detected ^3(^7IP: {ip} ^3| ^7Player Slot: {player_id}^7) :eyes:"
                         await self.bot.loop.run_in_executor(
                             self.executor, self.send_rcon_command,
                             msg, await self.config.rcon_host(),
