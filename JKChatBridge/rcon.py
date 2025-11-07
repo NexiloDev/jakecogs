@@ -2,6 +2,9 @@ import socket
 import time
 import logging
 import asyncio
+import os
+import aiofiles
+import random
 from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger("JKChatBridge")
@@ -9,7 +12,7 @@ logger = logging.getLogger("JKChatBridge")
 class RCONHandler:
     def setup_attributes(self):
         self.executor = ThreadPoolExecutor(max_workers=2)
-        self.random_chat_task = None
+        self.random_chat_task = None  # Initialize here
 
     async def load_random_chat_lines(self):
         path = await self.config.random_chat_path()
@@ -37,7 +40,7 @@ class RCONHandler:
     async def random_chat_loop(self):
         while True:
             try:
-                await asyncio.sleep(300)  # 5 minutes
+                await asyncio.sleep(300)
                 if not await self.validate_rcon_settings():
                     continue
                 bot_name = await self.config.bot_name()
