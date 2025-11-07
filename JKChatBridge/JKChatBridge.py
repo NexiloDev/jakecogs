@@ -266,12 +266,11 @@ class JKChatBridge(commands.Cog):
                         # Restart
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
-                            await channel.send("Standby: Server integration suspended while map changes or server restarts.")
+                            await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
-
                         elif "------ Server Initialization ------" in line and not self.is_restarting:
                             self.is_restarting = True
-                            await channel.send("Standby: Server integration suspended while map changes or server restarts.")
+                            await channel.send("⚠️ **Standby**: Server integration suspended while map changes or server restarts.")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
 
                         elif "Server: " in line and self.is_restarting:
