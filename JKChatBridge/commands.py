@@ -4,7 +4,9 @@ from redbot.core import commands
 import re
 from urllib.parse import quote
 
-class JKCommands:
+class CommandHandler:
+    """Standalone commands – jkrcon, jkstatus, jkplayer."""
+
     @commands.command(name="jkrcon")
     @commands.is_owner()
     @commands.has_permissions(administrator=True)
@@ -24,83 +26,75 @@ class JKCommands:
             await ctx.send(f"Failed to send RCON command `{command}`: {e}")
 
     @commands.command(name="jkstatus")
-    async def status(self, ctx):
-        """Display server status using ParaTracker."""
+    async def jkstatus(self, ctx):
+        """Show server status via ParaTracker."""
         async with aiohttp.ClientSession() as session:
             try:
-                tracker_url = await self.config.tracker_url()
-                if not tracker_url:
+                url = await self.config.tracker_url()
+                if not url:
                     await ctx.send("Tracker URL not set. Use `jkbridge settrackerurl`.")
                     return
-
-                async with session.get(tracker_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status != 200:
-                        await ctx.send(f"Failed: HTTP {resp.status}")
+                        await ctx.send(f"HTTP {resp.status}")
                         return
                     if 'application/json' not in resp.headers.get('Content-Type', ''):
-                        await ctx.send("Failed: Expected JSON.")
+                        await ctx.send("Expected JSON.")
                         return
                     data = await resp.json()
 
-                server_info = data.get("serverInfo", {})
+                si = data.get("serverInfo", {})
                 info = data.get("info", {})
                 players = data.get("players", [])
 
-                server_name = self.remove_color_codes(server_info.get("servername", "Unknown"))
-                map_name = server_info.get("mapname", "Unknown")
-                max_players = int(server_info.get("sv_maxclients", "32"))
-                humans = sum(1 for p in players if p.get("ping", "0") != "0")
-                bots = len(players) - humans
-                player_count = f"{len(players)}/{max_players}"
+                name = self.remove_color_codes(si.get("servername", "Unknown"))
+                map_ = si.get("mapname", "Unknown")
+                maxc = int(si.get("sv_maxclients", "32"))
+                player_count = f"{len(players)}/{maxc}"
 
                 player_list = "No players" if not players else "```\n" + \
-                    "ID  | Name              | Score\n" + \
+                    "ID | Name              | Score\n" + \
                     "\n".join(
-                        f"{i:<3} | {(self.remove_color_codes(p.get('name', ''))[:17]):<17} | {p.get('score', '0'):<5}"
+                        f"{i:<2} | {(self.remove_color_codes(p.get('name',''))[:17]):<17} | {p.get('score','0'):<5}"
                         for i, p in enumerate(players)
                     ) + "\n```"
 
-                embed1 = discord.Embed(title=server_name, color=discord.Color.gold())
-                embed1.add_field(name="Players", value=player_count, inline=True)
-                mod = self.remove_color_codes(info.get("gamename", "Unknown"))
-                embed1.add_field(name="Mod", value=mod, inline=True)
-                version = info.get("Lugormod_Version")
-                if version:
-                    embed1.add_field(name="Version", value=self.remove_color_codes(version), inline=True)
-                embed1.add_field(name="Map", value=f"`{map_name}`", inline=True)
-                embed1.add_field(name="IP", value=server_info.get("serverIPAddress", "Unknown"), inline=True)
-                embed1.add_field(name="Location", value=server_info.get("geoIPcountryCode", "??").upper(), inline=True)
+                e1 = discord.Embed(title=name, color=discord.Color.gold())
+                e1.add_field(name="Players", value=player_count, inline=True)
+                e1.add_field(name="Mod", value=self.remove_color_codes(info.get("gamename","")), inline=True)
+                if v := info.get("Lugormod_Version"):
+                    e1.add_field(name="Version", value=self.remove_color_codes(v), inline=True)
+                e1.add_field(name="Map", value=f"`{map_}`", inline=True)
+                e1.add_field(name="IP", value=si.get("serverIPAddress",""), inline=True)
+                e1.add_field(name="Location", value=si.get("geoIPcountryCode","??").upper(), inline=True)
 
-                levelshots = server_info.get("levelshotsArray", [])
-                if levelshots and levelshots[0]:
-                    image_url = f"https://pt.dogi.us/{quote(levelshots[0])}"
-                    embed1.set_image(url=image_url)
+                if (ls := si.get("levelshotsArray")) and ls[0]:
+                    e1.set_image(url=f"https://pt.dogi.us/{quote(ls[0]}" )
 
-                embed2 = discord.Embed(color=discord.Color.gold())
-                embed2.add_field(name="Players", value=player_list, inline=False)
+                e2 = discord.Embed(color_color=discord.Color.gold())
+                e2.add_field(name="Players", value=player_list, inline=False)
 
-                await ctx.send(embed=embed1)
-                await ctx.send(embed=embed2)
+                await ctx.send(embed=e1)
+                await ctx.send(embed=e2)
             except Exception as e:
-                await ctx.send(f"Failed to fetch status: {e}")
+                await ctx.send(f"Failed: {e}")
 
     @commands.command(name="jkplayer")
-    async def player_info(self, ctx, username: str):
+    async def jkplayer(self, ctx, username: str):
         """Show player stats via accountinfo."""
         if not await self.validate_rcon_settings():
             await ctx.send("RCON not configured.")
             return
-
-        command = f"accountinfo {username}"
+        cmd = f"accountinfo {username}"
         try:
-            response = await self.bot.loop.run_in_executor(
+            resp = await self.bot.loop.run_in_executor(
                 self.executor, self.send_rcon_command,
-                command, await self.config.rcon_host(),
+                cmd, await self.config.rcon_host(),
                 await self.config.rcon_port(), await self.config.rcon_password()
             )
-            text = response.decode('cp1252', errors='replace')
+            text = resp.decode('cp1252', errors='replace')
         except Exception as e:
-            await ctx.send(f"Failed to get info: {e}")
+            await ctx.send(f"Failed: {e}")
             return
 
         stats = {}
@@ -123,10 +117,7 @@ class JKCommands:
         if ":" in playtime:
             playtime = f"{playtime.split(':')[0]} Hrs"
 
-        embed = discord.Embed(
-            title=f"Stats: {stats.get('Name', username)}",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title=f"Stats: {stats.get('Name', username)}", color=discord.Color.blue())
         embed.add_field(name="Playtime", value=playtime, inline=True)
         embed.add_field(name="Level", value=stats.get("Level", "N/A"), inline=True)
         embed.add_field(name="Profession", value=stats.get("Profession", "N/A"), inline=True)

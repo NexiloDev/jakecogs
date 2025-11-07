@@ -1,8 +1,8 @@
-# JKChatBridge/config.py
 import discord
 from redbot.core import Config, commands
 
 class ConfigHandler:
+    """Handles Red config + the `!jkbridge` / `!jk` command group."""
     def setup_cog(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
@@ -21,6 +21,7 @@ class ConfigHandler:
             random_chat_path=None
         )
 
+        # ------------------------------------------------------------------
         @commands.group(name="jkbridge", aliases=["jk"])
         @commands.is_owner()
         async def jkbridge(ctx: commands.Context):
@@ -28,10 +29,11 @@ class ConfigHandler:
             pass
 
         self.jkbridge = jkbridge
-        self.add_config_commands()
-        self.bot.add_command(self.jkbridge)
+        self._add_config_subcommands()
+        self.bot.add_command(self.jkbridge)   # only ONE registration
 
-    def add_config_commands(self):
+    # ------------------------------------------------------------------
+    def _add_config_subcommands(self):
         @self.jkbridge.command()
         async def setlogbasepath(self, ctx: commands.Context, path: str):
             await self.config.log_base_path.set(path)
@@ -102,7 +104,7 @@ class ConfigHandler:
             channel = self.bot.get_channel(await self.config.discord_channel_id()) if await self.config.discord_channel_id() else None
             chat_path = await self.config.random_chat_path()
             chat_status = f"{len(self.random_chat_lines)} lines loaded" if chat_path and self.random_chat_lines else "Not set"
-            settings_message = (
+            msg = (
                 f"**Current Settings:**\n"
                 f"Log Base Path: `{await self.config.log_base_path() or 'Not set'}`\n"
                 f"Discord Channel: {channel.mention if channel else 'Not set'} (ID: {await self.config.discord_channel_id() or 'Not set'})\n"
@@ -114,4 +116,4 @@ class ConfigHandler:
                 f"Bot Name: `{await self.config.bot_name() or 'Not set'}`\n"
                 f"Random Chat File: `{chat_path or 'Not set'}` → {chat_status}"
             )
-            await ctx.send(settings_message)
+            await ctx.send(msg)
