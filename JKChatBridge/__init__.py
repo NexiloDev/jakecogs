@@ -22,6 +22,7 @@ class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RC
         self.bot = bot
         self.config = self.init_config(bot)
         self.setup_attributes()
+        self.setup_config_commands(bot)
         self.start_monitoring()
         self.bot.loop.create_task(self._start_random_chat_when_ready())
         self.bot.loop.create_task(self.auto_reload_monitor())

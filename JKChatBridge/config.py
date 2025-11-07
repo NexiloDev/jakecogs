@@ -20,7 +20,9 @@ class ConfigCommands:
         )
         return config
 
-    def setup_config_commands(self):
+    def setup_config_commands(self, bot):
+        self.bot = bot  # Add here
+
         @self.jkbridge.command()
         async def setlogbasepath(self, ctx: commands.Context, path: str):
             await self.config.log_base_path.set(path)
@@ -102,13 +104,10 @@ class ConfigCommands:
             )
             await ctx.send(settings_message)
 
+        self.bot.add_command(self.jkbridge)  # Register group
+
     @commands.group(name="jkbridge", aliases=["jk"])
     @commands.is_owner()
     async def jkbridge(self, ctx: commands.Context):
         """Configure the JK chat bridge (also available as 'jk')."""
         pass
-
-    def __init__(self, bot):
-        self.bot = bot
-        self.jkbridge = self.jkbridge
-        self.bot.add_command(self.jkbridge)
