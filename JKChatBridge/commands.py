@@ -69,7 +69,7 @@ class CommandHandler:
                 e1.add_field(name="Location", value=si.get("geoIPcountryCode","??").upper(), inline=True)
 
                 if (ls := si.get("levelshotsArray")) and ls[0]:
-                    e1.set_image(url=f"https://pt.dogi.us/{quote(ls[0]}" )
+                    e1.set_image(url=f"https://pt.dogi.us/{quote(ls[0])}")
 
                 e2 = discord.Embed(color_color=discord.Color.gold())
                 e2.add_field(name="Players", value=player_list, inline=False)
