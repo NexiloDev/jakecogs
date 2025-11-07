@@ -1,5 +1,4 @@
 import re
-from redbot.core import commands
 
 class ChatHandler:
     @commands.Cog.listener()
@@ -50,24 +49,19 @@ class ChatHandler:
             await message.channel.send(f"Failed to send: {e}")
 
     def replace_emojis_with_names(self, text):
-        for emoji in self.bot.emojis:
-            text = text.replace(str(emoji), f":{emoji.name}:")
         emoji_map = {
             ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
             ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣",
             ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
             ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
             ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
-            ":jackolantern:": ":jack_o_lantern:", ":christmastree": ":christmas_tree:"
+            ":jackolantern:": ":jack_o_lantern:", ":christmastree:": ":christmas_tree:"
         }
         return ''.join(emoji_map.get(c, c) for c in text)
 
     def clean_for_latin1(self, text):
         text = self.replace_emojis_with_names(text)
         return ''.join(c if ord(c) < 256 else '' for c in text)
-
-    def remove_color_codes(self, text):
-        return re.sub(r'\^\d', '', text or '')
 
     def replace_text_emotes_with_emojis(self, text):
         emote_map = {
@@ -76,20 +70,8 @@ class ChatHandler:
             ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
             ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
             ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
-            ":jackolantern:": ":jack_o_lantern:", ":christmastree": ":christmas_tree:"
+            ":jackolantern:": ":jack_o_lantern:", ":christmastree:": ":christmas_tree:"
         }
         for k, v in emote_map.items():
             text = text.replace(k, v)
         return text
-
-    def parse_chat_line(self, line):
-        say_idx = line.find("say: ")
-        if say_idx == -1:
-            return None, None
-        chat = line[say_idx + 5:]
-        colon_idx = chat.find(": ")
-        if colon_idx == -1:
-            return None, None
-        name = self.remove_color_codes(chat[:colon_idx].strip())
-        msg = self.remove_color_codes(chat[colon_idx + 2:].strip())
-        return name, msg
