@@ -39,7 +39,7 @@ class JKChatBridge(commands.Cog):
             tracker_url=None,
             bot_name=None,
             random_chat_path=None,
-            vpn_auto_kick=False  # <--- NEW: Default OFF
+            vpn_auto_kick=False
         )
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.monitoring = False
@@ -277,31 +277,37 @@ class JKChatBridge(commands.Cog):
                             self.restart_map = line.split("Server: ")[1].strip()
                             await asyncio.sleep(10)
                             if self.restart_map:
-                                await channel.send(f"Server Integration Resumed: Map {self.restart_map} loaded.")
+                                await channel.send(f"✅ **Server Integration Resumed**: Map {self.restart_map} loaded.")
                             self.is_restarting = False
                             self.restart_map = None
 
                         # Join
                         elif "Going from CS_PRIMED to CS_ACTIVE for" in line:
-                            join_name = line.split("for ")[1].strip()
-                            name_clean = self.remove_color_codes(join_name)
-                            if not name_clean.endswith("-Bot") and not self.is_restarting and await self.config.join_disconnect_enabled():
-                                await channel.send(f"<:jk_connect:1349009924306374756> **{name_clean}** has joined the game!")
-                                bot_name = await self.config.bot_name()
-                                if bot_name and await self.validate_rcon_settings():
-                                    now = time.time()
-                                    if now - self.last_welcome_time >= 5:
-                                        self.last_welcome_time = now
-                                        msg = f"sayasbot {bot_name} ^7Hey {join_name}^7, welcome to the server^5! :jackolantern:"
-                                        self.bot.loop.create_task(self.send_welcome_message(msg))
+                            join_name = line.split("Going from CS_PRIMED to CS_ACTIVE for ")[1].strip()
+                            join_name_clean = self.remove_color_codes(join_name)
+                            if not join_name_clean.endswith("-Bot") and not self.is_restarting:
+                                if await self.config.join_disconnect_enabled():
+                                    await channel.send(f"<:jk_connect:1349009924306374756> **{join_name_clean}** has joined the game!")
+                                    # Schedule welcome message with cooldown
+                                    bot_name = await self.config.bot_name()
+                                    if bot_name and await self.validate_rcon_settings():
+                                        current_time = time.time()
+                                        if current_time - self.last_welcome_time >= 5:  # 5-second cooldown
+                                            self.last_welcome_time = current_time
+                                            welcome_message = f"sayasbot {bot_name} ^7Hey {join_name}^7, welcome to the server^5! :sunglasses:"
+                                            self.bot.loop.create_task(self.send_welcome_message(welcome_message))
+                                        else:
+                                            logger.debug(f"Skipped welcome message for {join_name_clean} due to cooldown")
 
                         # Disconnect
                         elif "disconnected" in line:
                             match = re.search(r"info:\s*(.+?)\s*disconnected\s*\((\d+)\)", line)
-                            if match and await self.config.join_disconnect_enabled():
-                                name_clean = self.remove_color_codes(match.group(1))
+                            if match:
+                                name = match.group(1)
+                                name_clean = self.remove_color_codes(name)
                                 if not self.is_restarting and not name_clean.endswith("-Bot") and name_clean.strip():
-                                    await channel.send(f"<:jk_disconnect:1349010016044187713> **{name_clean}** has disconnected.")
+                                    if await self.config.join_disconnect_enabled():
+                                        await channel.send(f"<:jk_disconnect:1349010016044187713> **{name_clean}** has disconnected.")
 
             except Exception as e:
                 logger.error(f"Error in monitor_log: {e}")
