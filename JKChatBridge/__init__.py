@@ -10,6 +10,7 @@ from .config import ConfigCommands
 from .monitor import MonitorHandler
 from .chat import ChatHandler
 from .rcon import RCONHandler
+from .commands import JKCommands
 
 logger = logging.getLogger("JKChatBridge")
 
