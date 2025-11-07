@@ -124,7 +124,7 @@ class JKChatBridge(commands.Cog):
         while True:
             try:
                 await asyncio.sleep(300)  # 5 minutes
-                await self._reload_monitor_logic(silent=True)
+                await self.reload_monitor()  # Call existing reload_monitor (silent by default)
                 logger.debug("Auto-reload triggered")
             except Exception as e:
                 logger.error(f"Error in auto_reload_monitor: {e}")
@@ -522,7 +522,7 @@ class JKChatBridge(commands.Cog):
                         line = line.strip()
 
                         # === VPN Detection: Immediate check on IP line ===
-                        if line.startswith("info: IP: ") and await self.config.vpn_check_enabled():
+                        if "info: IP: " in line and await self.config.vpn_check_enabled():
                             parts = line.split()
                             if len(parts) >= 5:
                                 ip = parts[2]
