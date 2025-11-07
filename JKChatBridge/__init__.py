@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from redbot.core import commands
 from .config import ConfigHandler
 from .monitor import MonitorHandler
