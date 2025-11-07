@@ -4,6 +4,6 @@
   "short": "A chat bridge for Jedi Academy",
   "description": "Bridges public chat between Jedi Academy and Discord.",
   "install_msg": "Thanks for installing JKChatBridge! Use `[p]load JKChatBridge` to get started.",
-  "requirements": ["aiofiles", "asyncrcon"],
+  "requirements": ["aiofiles", "aiohttp"],
   "end_user_data_statement": "This cog does not store any end user data."
 }

@@ -9,10 +9,11 @@ from .config import ConfigCommands
 from .monitor import MonitorHandler
 from .chat import ChatHandler
 from .rcon import RCONHandler
+from .commands import JKCommands
 
 logger = logging.getLogger("JKChatBridge")
 
-class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RCONHandler):
+class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RCONHandler, JKCommands):
     RANDOM_CHAT_INTERVAL = 300
     RANDOM_CHAT_CHANCE = 0.5
 
