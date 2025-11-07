@@ -3,6 +3,7 @@ import logging
 import os
 import random
 import aiofiles
+import discord
 from concurrent.futures import ThreadPoolExecutor
 from redbot.core import commands
 from .config import ConfigCommands
