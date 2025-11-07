@@ -107,3 +107,8 @@ class ConfigCommands:
     async def jkbridge(self, ctx: commands.Context):
         """Configure the JK chat bridge (also available as 'jk')."""
         pass
+
+    def __init__(self, bot):
+        self.bot = bot
+        self.jkbridge = self.jkbridge
+        self.bot.add_command(self.jkbridge)
