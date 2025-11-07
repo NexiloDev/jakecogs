@@ -110,10 +110,21 @@ class JKChatBridge(commands.Cog):
                 await asyncio.sleep(60)
 
     async def auto_reload_monitor(self):
+        """Silent reload every 5 min - no ctx needed"""
         while True:
             try:
                 await asyncio.sleep(300)
-                await self.reload_monitor()
+                if self.monitor_task and not self.monitor_task.done():
+                    self.monitoring = False
+                    self.monitor_task.cancel()
+                    try:
+                        await self.monitor_task
+                    except asyncio.CancelledError:
+                        pass
+                await asyncio.sleep(0.5)
+                self.is_restarting = False
+                self.restart_map = None
+                self.start_monitoring()
                 logger.debug("Auto-reload triggered")
             except Exception as e:
                 logger.error(f"Auto-reload error: {e}")
