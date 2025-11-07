@@ -9,16 +9,9 @@ import aiohttp
 logger = logging.getLogger("JKChatBridge")
 
 class MonitorHandler:
-    # ------------------------------------------------------------------
-    # Called from __init__.py – creates all attributes the cog expects
     def setup_attributes(self):
-        self.monitoring = False
-        self.monitor_task = None
-        self.is_restarting = False
-        self.restart_map = None
-        self.last_welcome_time = 0
-
-    # ------------------------------------------------------------------
+        pass
+    
     async def monitor_log(self):
         self.monitoring = True
         log_file = os.path.join(await self.config.log_base_path(), "qconsole.log")

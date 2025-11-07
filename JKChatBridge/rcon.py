@@ -10,7 +10,7 @@ logger = logging.getLogger("JKChatBridge")
 
 class RCONHandler:
     def setup_attributes(self):
-        self.random_chat_task = None  # Only this
+        pass
 
     async def load_random_chat_lines(self):
         path = await self.config.random_chat_path()
