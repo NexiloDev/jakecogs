@@ -34,6 +34,8 @@ class JKChatBridge(commands.Cog):
             rcon_password=None,
             custom_emoji=None,
             join_disconnect_enabled=True,
+            vpn_api_key=None,
+            vpn_check_enabled=False,
             tracker_url=None,
             bot_name=None,
             random_chat_path=None
@@ -120,13 +122,13 @@ class JKChatBridge(commands.Cog):
     async def auto_reload_monitor(self):
         """Run silent reload_monitor every 5 minutes."""
         while True:
-            try:  # Added error handling to prevent task crashes
+            try:
                 await asyncio.sleep(300)  # 5 minutes
-                await self._reload_monitor_logic(silent=True)  # Changed to call new method
+                await self._reload_monitor_logic(silent=True)
                 logger.debug("Auto-reload triggered")
             except Exception as e:
                 logger.error(f"Error in auto_reload_monitor: {e}")
-                await asyncio.sleep(300)  # Wait before retrying
+                await asyncio.sleep(300)
 
     async def _safe_restart_monitor(self):
         """Restart only if task is dead."""
@@ -199,6 +201,19 @@ class JKChatBridge(commands.Cog):
         """Set the bot name for sayasbot commands."""
         await self.config.bot_name.set(name)
         await ctx.send(f"Bot name set to: {name}")
+
+    @jkbridge.command()
+    async def setvpnkey(self, ctx: commands.Context, key: str) -> None:
+        """Set the vpnapi.io API key."""
+        await self.config.vpn_api_key.set(key)
+        await ctx.send("VPN API key set.")
+
+    @jkbridge.command()
+    async def togglevpncheck(self, ctx: commands.Context) -> None:
+        """Toggle VPN detection on/off."""
+        new = not await self.config.vpn_check_enabled()
+        await self.config.vpn_check_enabled.set(new)
+        await ctx.send(f"VPN detection {'enabled' if new else 'disabled'}.")
 
     @jkbridge.command()
     async def setchatpath(self, ctx: commands.Context, path: str) -> None:
@@ -506,6 +521,17 @@ class JKChatBridge(commands.Cog):
                             continue
                         line = line.strip()
 
+                        # === VPN Detection: Immediate check on IP line ===
+                        if line.startswith("info: IP: ") and await self.config.vpn_check_enabled():
+                            parts = line.split()
+                            if len(parts) >= 5:
+                                ip = parts[2]
+                                player_id_str = parts[-1]
+                                if player_id_str.isdigit():
+                                    player_id = int(player_id_str)
+                                    self.bot.loop.create_task(self._handle_vpn_check(player_id, ip))
+                            continue
+
                         if "say:" in line and "tell:" not in line and "[Discord]" not in line:
                             player_name, message = self.parse_chat_line(line)
                             if player_name and message:
@@ -595,7 +621,7 @@ class JKChatBridge(commands.Cog):
             logger.error(f"Failed to send welcome message: {e}")
 
     async def reset_restart_flag(self, channel):
-        """Reset the restart flag after 30 seconds if no map change occurs."""
+        """Reset current_time = time.time()Reset the restart flag after 30 seconds if no map change occurs."""
         await asyncio.sleep(30)
         if self.is_restarting:
             self.is_restarting = False
@@ -622,9 +648,36 @@ class JKChatBridge(commands.Cog):
                 return self.remove_color_codes(player_name), self.remove_color_codes(message)
         return None, None
 
+    async def _handle_vpn_check(self, player_id: int, ip: str):
+        """Check IP via vpnapi.io and announce if VPN."""
+        api_key = await self.config.vpn_api_key()
+        if not api_key:
+            return
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"https://vpnapi.io/api/{ip}?key={api_key}"
+                async with session.get(url, timeout=5) as resp:
+                    if resp.status != 200:
+                        return
+                    data = await resp.json()
+                    if data.get("security", {}).get("vpn", False):
+                        bot_name = await self.config.bot_name() or "Server"
+                        msg = f"sayasbot {bot_name} VPN Detected ^3(^7IP: {ip} ^3| ^7Player ID: {player_id}^7) :eyes:"
+                        await self.bot.loop.run_in_executor(
+                            self.executor,
+                            self.send_rcon_command,
+                            msg,
+                            await self.config.rcon_host(),
+                            await self.config.rcon_port(),
+                            await self.config.rcon_password()
+                        )
+        except Exception:
+            pass  # Silent fail
+
     async def cog_unload(self):
         """Forcefully shut down all tasks and release file handles."""
-        self.monitoring = False  # Signal loop to stop
+        self.monitoring = False
 
         for task in [self.monitor_task, self.random_chat_task]:
             if task and not task.done():
@@ -636,7 +689,7 @@ class JKChatBridge(commands.Cog):
                 except Exception as e:
                     logger.error(f"Error during task shutdown: {e}")
 
-        self.executor.shutdown(wait=True)  # Wait for RCON threads
+        self.executor.shutdown(wait=True)
         logger.info("JKChatBridge unloaded cleanly.")
 
     @commands.command(name="jkexec")
