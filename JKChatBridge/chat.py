@@ -1,4 +1,5 @@
 import re
+from redbot.core import commands
 
 class ChatHandler:
     @commands.Cog.listener()
@@ -52,13 +53,12 @@ class ChatHandler:
         for emoji in self.bot.emojis:
             text = text.replace(str(emoji), f":{emoji.name}:")
         emoji_map = {
-            ":)": "SMILING_FACE_WITH_SMILING_EYES", ":D": "GRINNING_FACE_WITH_SMILING_EYES", "XD": "FACE_WITH_TEARS_OF_JOY", "xD": "ROLLING_ON_THE_FLOOR_LAUGHING",
-            ";)": "WINKING_FACE", ":P": "FACE_WITH_TONGUE", ":(": "CRYING_FACE", ">:(": "ANGRY_FACE", ":+1:": "THUMBS_UP", ":-1:": "THUMBS_DOWN",
-            "<3": "HEART_SUIT", ":*": "HEART_EYES", ":S": "PERSPIRING_FACE", ":o": "FACE_WITHOUT_MOUTH", "=D": "GRINNING_FACE", "xD": "GRINNING_FACE_WITH_BIG_EYES",
-            "O.o": "FLUSHED_FACE", "B)": "NERD_FACE", "-_-": "SLEEPING_FACE", "^^;": "GRIMACING_FACE", ":/": "UNAMUSED_FACE", ":*": "KISSING_FACE",
-            "8)": "COOL_FACE", "D:": "SCREAMING_FACE", ":?": "THINKING_FACE", "\\o/": "PARTYING_FACE", ">^.^<": "HUGGING_FACE", ":p": "ZANY_FACE",
-            ":pray:": "PRAYING_HANDS", ":wave:": "WAVING_HAND", ":-|": "NEUTRAL_FACE", "*.*": "STAR_STRUCK", "O:)": "INNOCENT_FACE",
-            ":jackolantern:": "JACK_O_LANTERN", ":christmastree": "CHRISTMAS_TREE"
+            ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
+            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣",
+            ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
+            ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
+            ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
+            ":jackolantern:": ":jack_o_lantern:", ":christmastree": ":christmas_tree:"
         }
         return ''.join(emoji_map.get(c, c) for c in text)
 
@@ -71,12 +71,11 @@ class ChatHandler:
 
     def replace_text_emotes_with_emojis(self, text):
         emote_map = {
-            ":)": "SMILING_FACE_WITH_SMILING_EYES", ":D": "SMILING_FACE_WITH_SMILING_EYES", "XD": "FACE_WITH_TEARS_OF_JOY", "xD": "ROLLING_ON_THE_FLOOR_LAUGHING",
-            ";)": "WINKING_FACE", ":P": "FACE_WITH_TONGUE", ":(": "CRYING_FACE", ">:(": "ANGRY_FACE", ":+1:": "THUMBS_UP", ":-1:": "THUMBS_DOWN",
-            "<3": "HEART_SUIT", ":*": "HEART_EYES", ":S": "PERSPIRING_FACE", ":o": "FACE_WITHOUT_MOUTH", "=D": "GRINNING_FACE", "xD": "GRINNING_FACE_WITH_BIG_EYES",
-            "O.o": "FLUSHED_FACE", "B)": "NERD_FACE", "-_-": "SLEEPING_FACE", "^^;": "GRIMACING_FACE", ":/": "UNAMUSED_FACE", ":*": "KISSING_FACE",
-            "8)": "COOL_FACE", "D:": "SCREAMING_FACE", ":?": "THINKING_FACE", "\\o/": "PARTYING_FACE", ">^.^<": "HUGGING_FACE", ":p": "ZANY_FACE",
-            ":pray:": "PRAYING_HANDS", ":wave:": "WAVING_HAND", ":-|": "NEUTRAL_FACE", "*.*": "STAR_STRUCK", "O:)": "INNOCENT_FACE",
+            ":)": "😊", ":D": "😄", "XD": "😂", "xD": "🤣", ";)": "😉", ":P": "😛", ":(": "😢",
+            ">:(": "😡", ":+1:": "👍", ":-1:": "👎", "<3": "❤️", ":*": "😍", ":S": "😣",
+            ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
+            ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
+            ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
             ":jackolantern:": ":jack_o_lantern:", ":christmastree": ":christmas_tree:"
         }
         for k, v in emote_map.items():

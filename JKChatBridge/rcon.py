@@ -1,6 +1,9 @@
 import socket
 import time
+import logging
 from concurrent.futures import ThreadPoolExecutor
+
+logger = logging.getLogger("JKChatBridge")
 
 class RCONHandler:
     def setup_attributes(self):
