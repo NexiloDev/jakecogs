@@ -1,5 +1,8 @@
 import asyncio
 import logging
+import os
+import random
+import aiofiles
 from redbot.core import commands
 from .config import ConfigCommands
 from .monitor import MonitorHandler
@@ -9,8 +12,6 @@ from .rcon import RCONHandler
 logger = logging.getLogger("JKChatBridge")
 
 class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RCONHandler):
-    """Bridges public chat between Jedi Academy and Discord."""
-
     RANDOM_CHAT_INTERVAL = 300
     RANDOM_CHAT_CHANCE = 0.5
 

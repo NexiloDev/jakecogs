@@ -3,6 +3,7 @@ import os
 import re
 import time
 import logging
+import asyncio
 import aiohttp
 
 logger = logging.getLogger("JKChatBridge")
@@ -14,7 +15,6 @@ class MonitorHandler:
         self.is_restarting = False
         self.restart_map = None
         self.last_welcome_time = 0
-        self.random_chat_lines = []
 
     async def monitor_log(self):
         self.monitoring = True
@@ -48,10 +48,9 @@ class MonitorHandler:
                             continue
                         line = line.strip()
 
-                        # === VPN Detection ===
                         if "info: IP: " in line and await self.config.vpn_check_enabled():
                             parts = line.split()
-                            if len(parts) >= 8:  # timestamp + "info:" + "IP:" + IP + "Padawan" + ID + ID
+                            if len(parts) >= 8:
                                 ip = parts[4]
                                 player_id_str = parts[6]
                                 if player_id_str.isdigit():
@@ -83,19 +82,19 @@ class MonitorHandler:
 
                         elif "ShutdownGame:" in line and not self.is_restarting:
                             self.is_restarting = True
-                            await channel.send("**Standby**: Server integration suspended while map changes or server restarts.")
+                            await channel.send("Standby: Server integration suspended while map changes or server restarts.")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
 
                         elif "------ Server Initialization ------" in line and not self.is_restarting:
                             self.is_restarting = True
-                            await channel.send("**Standby**: Server integration suspended while map changes or server restarts.")
+                            await channel.send("Standby: Server integration suspended while map changes or server restarts.")
                             self.bot.loop.create_task(self.reset_restart_flag(channel))
 
                         elif "Server: " in line and self.is_restarting:
                             self.restart_map = line.split("Server: ")[1].strip()
                             await asyncio.sleep(10)
                             if self.restart_map:
-                                await channel.send(f"**Server Integration Resumed**: Map {self.restart_map} loaded.")
+                                await channel.send(f"Server Integration Resumed: Map {self.restart_map} loaded.")
                             self.is_restarting = False
                             self.restart_map = None
 
