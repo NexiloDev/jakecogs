@@ -5,14 +5,12 @@ import asyncio
 import os
 import aiofiles
 import random
-from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger("JKChatBridge")
 
 class RCONHandler:
     def setup_attributes(self):
-        self.executor = ThreadPoolExecutor(max_workers=2)
-        self.random_chat_task = None
+        self.random_chat_task = None  # Only this
 
     async def load_random_chat_lines(self):
         path = await self.config.random_chat_path()

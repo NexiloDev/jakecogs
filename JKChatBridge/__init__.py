@@ -3,6 +3,7 @@ import logging
 import os
 import random
 import aiofiles
+from concurrent.futures import ThreadPoolExecutor
 from redbot.core import commands
 from .config import ConfigCommands
 from .monitor import MonitorHandler
@@ -18,11 +19,21 @@ class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RC
     def __init__(self, bot):
         self.bot = bot
         self.config = self.init_config(bot)
-        self.setup_attributes()  # Only once
+        self.setup_attributes()
         self.setup_config_commands()
         self.start_monitoring()
         self.bot.loop.create_task(self._start_random_chat_when_ready())
         self.bot.loop.create_task(self.auto_reload_monitor())
+
+    def setup_attributes(self):
+        self.monitoring = False
+        self.monitor_task = None
+        self.random_chat_task = None
+        self.is_restarting = False
+        self.restart_map = None
+        self.last_welcome_time = 0
+        self.random_chat_lines = []
+        self.executor = ThreadPoolExecutor(max_workers=2)  # MOVED HERE
 
     async def _start_random_chat_when_ready(self):
         await self.bot.wait_until_ready()
@@ -37,7 +48,8 @@ class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RC
         for task in [self.monitor_task, self.random_chat_task]:
             if task and not task.done():
                 task.cancel()
-        self.executor.shutdown(wait=True)
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=True)
         logger.info("JKChatBridge unloaded cleanly.")
 
 async def setup(bot):
