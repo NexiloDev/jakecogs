@@ -1,55 +1,27 @@
 import asyncio
 import logging
-import os
-import random
-import aiofiles
-import discord
-from concurrent.futures import ThreadPoolExecutor
 from redbot.core import commands
-from .config import ConfigCommands
+from .config import ConfigHandler
 from .monitor import MonitorHandler
 from .chat import ChatHandler
 from .rcon import RCONHandler
-from .commands import JKCommands
+from .commands import CommandHandler
 
 logger = logging.getLogger("JKChatBridge")
 
-# DO NOT IMPORT JKCommands here
-
-class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RCONHandler):
-    RANDOM_CHAT_INTERVAL = 300
-    RANDOM_CHAT_CHANCE = 0.5
-
+class JKChatBridge(
+    commands.Cog,
+    ConfigHandler,
+    MonitorHandler,
+    ChatHandler,
+    RCONHandler,
+    CommandHandler
+):
     def __init__(self, bot):
         self.bot = bot
-        self.config = self.init_config(bot)
-        self.setup_attributes()
-        self.setup_config_commands(bot)
-
-        # Import JKCommands AFTER all other modules are loaded
-        from .commands import JKCommands
-        self.__class__ = type('JKChatBridge', (JKChatBridge, JKCommands), {})
-
-        self.start_monitoring()
-        self.bot.loop.create_task(self._start_random_chat_when_ready())
-        self.bot.loop.create_task(self.auto_reload_monitor())
-
-    def setup_attributes(self):
-        self.monitoring = False
-        self.monitor_task = None
-        self.random_chat_task = None
-        self.is_restarting = False
-        self.restart_map = None
-        self.last_welcome_time = 0
-        self.random_chat_lines = []
-        self.executor = ThreadPoolExecutor(max_workers=2)
-
-    async def _start_random_chat_when_ready(self):
-        await self.bot.wait_until_ready()
-        await self.start_random_chat_task()
+        self.setup_cog(bot)
 
     async def cog_load(self):
-        logger.debug("Cog loaded.")
         await self.load_random_chat_lines()
 
     async def cog_unload(self):
@@ -57,8 +29,7 @@ class JKChatBridge(commands.Cog, ConfigCommands, MonitorHandler, ChatHandler, RC
         for task in [self.monitor_task, self.random_chat_task]:
             if task and not task.done():
                 task.cancel()
-        if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=True)
+        self.executor.shutdown(wait=True)
         logger.info("JKChatBridge unloaded cleanly.")
 
 async def setup(bot):

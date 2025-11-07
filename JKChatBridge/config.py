@@ -1,10 +1,12 @@
+# JKChatBridge/config.py
 import discord
 from redbot.core import Config, commands
 
-class ConfigCommands:
-    def init_config(self, bot):
-        config = Config.get_conf(self, identifier=1234567890, force_registration=True)
-        config.register_global(
+class ConfigHandler:
+    def setup_cog(self, bot):
+        self.bot = bot
+        self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
+        self.config.register_global(
             log_base_path=None,
             discord_channel_id=None,
             rcon_host=None,
@@ -18,35 +20,45 @@ class ConfigCommands:
             bot_name=None,
             random_chat_path=None
         )
-        return config
 
-    def setup_config_commands(self, bot):
-        self.bot = bot  # Add here
+        @commands.group(name="jkbridge", aliases=["jk"])
+        @commands.is_owner()
+        async def jkbridge(ctx: commands.Context):
+            """Configure the JK chat bridge (also available as 'jk')."""
+            pass
 
+        self.jkbridge = jkbridge
+        self.add_config_commands()
+        self.bot.add_command(self.jkbridge)
+
+    def add_config_commands(self):
         @self.jkbridge.command()
         async def setlogbasepath(self, ctx: commands.Context, path: str):
             await self.config.log_base_path.set(path)
             if self.monitor_task and not self.monitor_task.done():
                 self.monitoring = False
                 self.monitor_task.cancel()
-                await self.monitor_task
+                try:
+                    await self.monitor_task
+                except asyncio.CancelledError:
+                    pass
             self.start_monitoring()
-            await ctx.send(f"Log base path set to: {path}. Monitoring task restarted.")
+            await ctx.send(f"Log base path set to: `{path}`. Monitoring restarted.")
 
         @self.jkbridge.command()
         async def setchannel(self, ctx: commands.Context, channel: discord.TextChannel):
             await self.config.discord_channel_id.set(channel.id)
-            await ctx.send(f"Discord channel set to: {channel.name} (ID: {channel.id})")
+            await ctx.send(f"Discord channel set to: {channel.mention} (ID: {channel.id})")
 
         @self.jkbridge.command()
         async def setrconhost(self, ctx: commands.Context, host: str):
             await self.config.rcon_host.set(host)
-            await ctx.send(f"RCON host set to: {host}")
+            await ctx.send(f"RCON host set to: `{host}`")
 
         @self.jkbridge.command()
         async def setrconport(self, ctx: commands.Context, port: int):
             await self.config.rcon_port.set(port)
-            await ctx.send(f"RCON port set to: {port}")
+            await ctx.send(f"RCON port set to: `{port}`")
 
         @self.jkbridge.command()
         async def setrconpassword(self, ctx: commands.Context, password: str):
@@ -60,12 +72,12 @@ class ConfigCommands:
         @self.jkbridge.command()
         async def settrackerurl(self, ctx: commands.Context, url: str):
             await self.config.tracker_url.set(url)
-            await ctx.send(f"Tracker URL set to: {url}")
+            await ctx.send(f"Tracker URL set to: `{url}`")
 
         @self.jkbridge.command()
         async def setbotname(self, ctx: commands.Context, name: str):
             await self.config.bot_name.set(name)
-            await ctx.send(f"Bot name set to: {name}")
+            await ctx.send(f"Bot name set to: `{name}`")
 
         @self.jkbridge.command()
         async def setvpnkey(self, ctx: commands.Context, key: str):
@@ -76,7 +88,7 @@ class ConfigCommands:
         async def togglevpncheck(self, ctx: commands.Context):
             new = not await self.config.vpn_check_enabled()
             await self.config.vpn_check_enabled.set(new)
-            await ctx.send(f"VPN detection {'enabled' if new else 'disabled'}.")
+            await ctx.send(f"VPN detection **{'enabled' if new else 'disabled'}**.")
 
         @self.jkbridge.command()
         async def setchatpath(self, ctx: commands.Context, path: str):
@@ -92,22 +104,14 @@ class ConfigCommands:
             chat_status = f"{len(self.random_chat_lines)} lines loaded" if chat_path and self.random_chat_lines else "Not set"
             settings_message = (
                 f"**Current Settings:**\n"
-                f"Log Base Path: {await self.config.log_base_path() or 'Not set'}\n"
-                f"Discord Channel: {channel.name if channel else 'Not set'} (ID: {await self.config.discord_channel_id() or 'Not set'})\n"
-                f"RCON Host: {await self.config.rcon_host() or 'Not set'}\n"
-                f"RCON Port: {await self.config.rcon_port() or 'Not set'}\n"
+                f"Log Base Path: `{await self.config.log_base_path() or 'Not set'}`\n"
+                f"Discord Channel: {channel.mention if channel else 'Not set'} (ID: {await self.config.discord_channel_id() or 'Not set'})\n"
+                f"RCON Host: `{await self.config.rcon_host() or 'Not set'}`\n"
+                f"RCON Port: `{await self.config.rcon_port() or 'Not set'}`\n"
                 f"RCON Password: {'Set' if await self.config.rcon_password() else 'Not set'}\n"
-                f"Custom Emoji: {await self.config.custom_emoji() or 'Not set'}\n"
-                f"Tracker URL: {await self.config.tracker_url() or 'Not set'}\n"
-                f"Bot Name: {await self.config.bot_name() or 'Not set'}\n"
+                f"Custom Emoji: `{await self.config.custom_emoji() or 'Not set'}`\n"
+                f"Tracker URL: `{await self.config.tracker_url() or 'Not set'}`\n"
+                f"Bot Name: `{await self.config.bot_name() or 'Not set'}`\n"
                 f"Random Chat File: `{chat_path or 'Not set'}` → {chat_status}"
             )
             await ctx.send(settings_message)
-
-        self.bot.add_command(self.jkbridge)  # Register group
-
-    @commands.group(name="jkbridge", aliases=["jk"])
-    @commands.is_owner()
-    async def jkbridge(self, ctx: commands.Context):
-        """Configure the JK chat bridge (also available as 'jk')."""
-        pass
