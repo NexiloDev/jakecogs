@@ -28,7 +28,6 @@ class ConfigHandler:
             pass
 
         self.jkbridge = jkbridge
-        self.bot.add_command(self.jkbridge)
 
         # Subcommands
         @self.jkbridge.command()
