@@ -122,13 +122,13 @@ class JKChatBridge(commands.Cog):
     async def auto_reload_monitor(self):
         """Run silent reload_monitor every 5 minutes."""
         while True:
-            try:
+            try:  # Added error handling to prevent task crashes
                 await asyncio.sleep(300)  # 5 minutes
-                await self.reload_monitor()  # Call existing reload_monitor (silent by default)
+                await self._reload_monitor_logic(silent=True)  # Changed to call new method
                 logger.debug("Auto-reload triggered")
             except Exception as e:
                 logger.error(f"Error in auto_reload_monitor: {e}")
-                await asyncio.sleep(300)
+                await asyncio.sleep(300)  # Wait before retrying
 
     async def _safe_restart_monitor(self):
         """Restart only if task is dead."""
@@ -482,7 +482,7 @@ class JKChatBridge(commands.Cog):
             ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
             ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
             ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
-            ":jackolantern:": ":jack_o_lantern:", ":christmastree": ":christmas_tree:"
+            ":jackolantern:": ":jack_o_lantern:", ":christmastree:": ":christmas_tree:"
         }
         for text_emote, emoji in text_emote_map.items():
             text = text.replace(text_emote, emoji)
