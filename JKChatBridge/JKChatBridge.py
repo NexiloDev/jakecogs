@@ -256,7 +256,7 @@ class JKChatBridge(commands.Cog):
                                 if await self.validate_rcon_settings():
                                     bot_name = await self.config.bot_name()
                                     if bot_name:
-                                        msg = f"sayasbot {bot_name} {winner} ^7has defeated {loser} ^7in a duel^5! :crown:"
+                                        msg = f"sayasbot {bot_name} {winner} ^7has defeated {loser} ^7in a duel^5! :trophy:"
                                         await self.bot.loop.run_in_executor(
                                             self.executor, self.send_rcon_command,
                                             msg, await self.config.rcon_host(),
@@ -294,7 +294,7 @@ class JKChatBridge(commands.Cog):
                                         current_time = time.time()
                                         if current_time - self.last_welcome_time >= 5:  # 5-second cooldown
                                             self.last_welcome_time = current_time
-                                            welcome_message = f"sayasbot {bot_name} ^7Hey {join_name}^7, welcome to the server^5! :hi:"
+                                            welcome_message = f"sayasbot {bot_name} ^7Hey {join_name}^7, welcome to the server^5! :wave:"
                                             self.bot.loop.create_task(self.send_welcome_message(welcome_message))
                                         else:
                                             logger.debug(f"Skipped welcome message for {join_name_clean} due to cooldown")
@@ -685,7 +685,7 @@ class JKChatBridge(commands.Cog):
             ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
             ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
             ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
-            ":jackolantern:": ":jack_o_lantern:", ":christmastree:": ":christmas_tree:", ":hi:": ":wave:", ":lol:": ":rofl:"
+            ":jackolantern:": ":jack_o_lantern:", ":christmastree:": ":christmas_tree:", ":lol:": ":rofl:"
         }
         return ''.join(emoji_map.get(c, c) for c in text)
 
@@ -696,7 +696,7 @@ class JKChatBridge(commands.Cog):
             ":o": "😮", "=D": "😁", "xD": "😆", "O.o": "😳", "B)": "🤓", "-_-": "😴", "^^;": "😅",
             ":/": "😒", ":*": "😘", "8)": "😎", "D:": "😱", ":?": "🤔", "\\o/": "🥳", ">^.^<": "🤗", ":p": "🤪",
             ":pray:": "🙏", ":wave:": "👋", ":-|": "😶", "*.*": "🤩", "O:)": "😇",
-            ":jackolantern:": ":jack_o_lantern:", ":christmastree:": ":christmas_tree:", ":hi:": ":wave:", ":lol:": ":rofl:"
+            ":jackolantern:": ":jack_o_lantern:", ":christmastree:": ":christmas_tree:", ":lol:": ":rofl:"
         }
         for k, v in emote_map.items():
             text = text.replace(k, v)
